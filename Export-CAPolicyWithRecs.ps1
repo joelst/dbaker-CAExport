@@ -611,8 +611,8 @@ function Update-PolicyStatus {
         $Status3 = "fas fa-exclamation-triangle"
     }
     
-    $CheckExcUG = $PolicyCheck.Conditions.Users.ExcludeUsers + $PolicyCheck.Conditions.Users.ExcludeGroups + $PolicyCheck.Conditions.Users.ExcludeRoles
-    $CheckIncUG = $PolicyCheck.Conditions.Users.IncludeUsers + $PolicyCheck.Conditions.Users.IncludeGroups + $PolicyCheck.Conditions.Users.IncludeRoles
+    $CheckExcUG = $PolicyCheck.Conditions.Users.ExcludeUsers + $PolicyCheck.Conditions.Users.ExcludeGroups + $PolicyCheck.Conditions.Users.ExcludeRoles + $PolicyCheck.conditions.users.ExcludeGuestsOrExternalUsers.GuestOrExternalUserTypes -replace ',', ', '
+    $CheckIncUG = $PolicyCheck.Conditions.Users.IncludeUsers + $PolicyCheck.Conditions.Users.IncludeGroups + $PolicyCheck.Conditions.Users.IncludeRoles + $PolicyCheck.conditions.users.IncludeGuestsOrExternalUsers.GuestOrExternalUserTypes -replace ',', ', '
     $CheckIncCond = $PolicyCheck.Conditions.Locations.includelocations + $PolicyCheck.Conditions.Platforms.IncludePlatforms
     $CheckExcCond = $PolicyCheck.Conditions.Locations.Excludelocations + $PolicyCheck.Conditions.Platforms.ExcludePlatforms
     $CheckGrant = $PolicyCheck.GrantControls.BuiltInControls + $PolicyCheck.GrantControls.AuthenticationStrength.DisplayName + $PolicyCheck.GrantControls.CustomAuthenticationFactors + $PolicyCheck.GrantControls.TermsOfUse
@@ -780,7 +780,8 @@ $CheckFunctions = @{
         ($PolicyCheck.Conditions.Users.IncludeUsers -eq $null -or $PolicyCheck.Conditions.Users.IncludeUsers.Count -eq 0 -or $PolicyCheck.Conditions.Users.IncludeUsers -eq "None") -and
         ($PolicyCheck.Conditions.Users.IncludeGroups -eq $null -or $PolicyCheck.Conditions.Users.IncludeGroups.Count -eq 0 -or
         ($PolicyCheck.Conditions.Users.IncludeGroups | ForEach-Object { $_ -match '\((\d+)\)' -and [int]$matches[1] -eq 0 })) -and
-        ($PolicyCheck.Conditions.Users.IncludeRoles -eq $null -or $PolicyCheck.Conditions.Users.IncludeRoles.Count -eq 0)
+        ($PolicyCheck.Conditions.Users.IncludeRoles -eq $null -or $PolicyCheck.Conditions.Users.IncludeRoles.Count -eq 0) -and
+        ($PolicyCheck.conditions.users.IncludeGuestsOrExternalUsers.GuestOrExternalUserTypes -eq $null)
     }
     "CA-08" = {
         param($PolicyCheck)
