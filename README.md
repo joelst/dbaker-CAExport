@@ -33,7 +33,7 @@ Two scripts are provided:
 Screenshots:
 ![Recommendations Tab](./images/CaExport-rec.png)
 ![Results Table](./images/CaExport-result.png)
-![Dupolicate Select Highlight](./images/CAExport-Select.png)
+![Duplicate Highlighting](./images/CAExport-Select.png)
 ![Summary Table](./images/CaExport-summary.png)
 ---
 ## Installation / Prereqs
@@ -163,6 +163,8 @@ PRs welcome. Please:
 
 ---
 ## License
+
+It's cool to share stuff to make other people's lives easier, so let's keep doing that.
 
 Shield: [![CC BY-NC-SA 4.0][cc-by-nc-sa-shield]][cc-by-nc-sa]
 
