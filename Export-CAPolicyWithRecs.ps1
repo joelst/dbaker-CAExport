@@ -1,4 +1,3 @@
-#requires -Modules Microsoft.Graph.Identity.SignIns, Microsoft.Graph.Authentication
 <#
 .SYNOPSIS
     Export Conditional Access Policies with Recommendations.
@@ -31,7 +30,7 @@
   the default full set is used.
 
 .OUTPUTS
-  Files written to the working directory. Filenames are timestamped and prefixed with CAExport_<TenantName>_.
+  Files written to the working directory. Filenames are timestamped and prefixed with CAExportRec_<TenantName>_.
 
 .EXAMPLE
   PS> .\Export-CAPolicyWithRecs.ps1
@@ -63,8 +62,7 @@
 This example runs the script and exports all Conditional Access policies with recommendations.
 
 .NOTES
-    Author:  Douglas Baker
-             @dougsbaker
+  Author:  Douglas Baker @dougsbaker
   Version: 3.1.1
 
 Output report uses open source components for HTML formatting
@@ -100,7 +98,9 @@ param (
   Reconstructed: helper functions, Graph connection, data retrieval, enrichment, CAExport build, duplicate detection, pivot prep.
 #>
 
-<#
+
+function Write-Info {
+  <#
 .SYNOPSIS
   Write an informational message to the information stream.
 .DESCRIPTION
@@ -109,13 +109,14 @@ param (
 .PARAMETER Message
   The text to emit.
 #>
-function Write-Info {
   [CmdletBinding()]
   param([Parameter(Mandatory)][string]$Message)
   Write-Information -MessageData "[INFO] $Message" -InformationAction Continue
 }
 
-<#
+
+function Write-Warn {
+  <#
 .SYNOPSIS
   Write a warning message.
 .DESCRIPTION
@@ -124,13 +125,89 @@ function Write-Info {
   Write-Warn 'Policy collection returned zero results.'
   Emits a formatted warning to the warning stream.
 #>
-function Write-Warn {
   [CmdletBinding()]
   param([Parameter(Mandatory)][string]$Message)
   Write-Warning $Message
 }
 
-<#
+
+function Initialize-GraphModule {
+  <#
+.SYNOPSIS
+  Ensure required PowerShell modules are installed and loadable for the current user.
+.DESCRIPTION
+  Verifies presence of Microsoft Graph modules used by this script and installs them to CurrentUser scope when missing.
+  Attempts to trust PSGallery and install the NuGet provider when necessary. Imports modules after install.
+.PARAMETER RequiredModules
+  The list of module names to validate/install. Defaults to Microsoft Graph modules used by this script.
+.EXAMPLE
+  Ensure-GraphModules
+#>
+  [CmdletBinding()]
+  param(
+    [string[]]$RequiredModules = @(
+      'Microsoft.Graph',
+      'Microsoft.Graph.Authentication',
+      'Microsoft.Graph.Identity.DirectoryManagement',
+      'Microsoft.Graph.Identity.SignIns'
+    )
+  )
+
+  try {
+    # Prefer TLS 1.2 for gallery operations (safe no-op on newer PowerShell)
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+  }
+  catch {
+    Write-Verbose 'Failed to set SecurityProtocol to TLS 1.2; proceeding with defaults.'
+  }
+
+  # Ensure NuGet provider exists (for Install-Module)
+  try {
+    $nuget = Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue
+    if (-not $nuget) {
+      Write-Info 'Installing NuGet package provider (CurrentUser)'
+      Install-PackageProvider -Name NuGet -Scope CurrentUser -Force -MinimumVersion '2.8.5.201' -ErrorAction Stop | Out-Null
+    }
+  }
+  catch {
+    Write-Warn ('Failed to install NuGet provider: {0}' -f $_.Exception.Message)
+  }
+
+  # Ensure PSGallery is available and trusted
+  try {
+    $repo = Get-PSRepository -Name 'PSGallery' -ErrorAction Stop
+    if ($repo.InstallationPolicy -ne 'Trusted') {
+      try { Set-PSRepository -Name 'PSGallery' -InstallationPolicy Trusted -ErrorAction Stop } catch { Write-Warn 'Could not set PSGallery as Trusted. You may be prompted during install.' }
+    }
+  }
+  catch {
+    Write-Warn 'PowerShell Gallery (PSGallery) not found. Module installation may fail until the repository is available.'
+  }
+
+  foreach ($m in $RequiredModules) {
+    $installed = Get-Module -ListAvailable -Name $m
+    if (-not $installed) {
+      Write-Info ('Installing module: {0} (CurrentUser)' -f $m)
+      try {
+        Install-Module -Name $m -Scope CurrentUser -AllowClobber -Force -ErrorAction Stop
+      }
+      catch {
+        Write-Warn ("Failed to install module '{0}': {1}" -f $m, $_.Exception.Message)
+      }
+    }
+    # Import (best-effort)
+    try {
+      Import-Module -Name $m -Force -ErrorAction Stop
+    }
+    catch {
+      Write-Warn ("Failed to import module '{0}': {1}" -f $m, $_.Exception.Message)
+    }
+  }
+}
+
+
+function Connect-GraphContext {
+  <#
 .SYNOPSIS
   Establish a Microsoft Graph connection if one does not already exist.
 .DESCRIPTION
@@ -142,7 +219,6 @@ function Write-Warn {
   Connect-GraphContext
   Ensures the current session is connected with required scopes; returns immediately if already connected.
 #>
-function Connect-GraphContext {
   [CmdletBinding()]
   param()
   $ctx = $null
@@ -162,7 +238,9 @@ function Connect-GraphContext {
   }
 }
 
-<#
+
+function Invoke-SafeGet {
+  <#
 .SYNOPSIS
   Safely invoke a script block, returning $null on failure.
 .DESCRIPTION
@@ -173,13 +251,14 @@ function Connect-GraphContext {
 .EXAMPLE
   Invoke-SafeGet { Get-MgUser -UserId $id -Property Id,DisplayName }
 #>
-function Invoke-SafeGet {
   [CmdletBinding()]
   param([Parameter(Mandatory)][ScriptBlock]$ScriptBlock)
   try { & $ScriptBlock } catch { Write-Verbose ('Invoke-SafeGet suppressed error: {0}' -f $_.Exception.Message); return $null }
 }
 
-<#
+
+function Convert-IdListToName {
+  <#
 .SYNOPSIS
   Convert a list of IDs to their friendly names when present in a lookup map.
 .DESCRIPTION
@@ -192,14 +271,15 @@ function Invoke-SafeGet {
 .EXAMPLE
   Convert-IdListToNames -List $policy.conditions.users.includeUsers -Map $UserMap
 #>
-function Convert-IdListToName {
   [CmdletBinding()]
   param([string[]]$List, [hashtable]$Map)
   if (-not $List) { return @() }
   return $List | ForEach-Object { if ($Map.ContainsKey($_)) { $Map[$_] } else { $_ } }
 }
 
-<#
+
+function Test-IsGuid {
+  <#
 .SYNOPSIS
   Test whether a string is a GUID.
 .DESCRIPTION
@@ -211,8 +291,10 @@ function Convert-IdListToName {
 .EXAMPLE
   Test-IsGuid 'All'
   Returns False.
+  .PARAMETER Value
+  The string value to test.
+
 #>
-function Test-IsGuid {
   [CmdletBinding()]
   param([string]$Value)
   if (-not $Value) { return $false }
@@ -221,6 +303,25 @@ function Test-IsGuid {
 
 # Unified resolver: given a list of IDs (users/groups/roles/apps), return friendly names when available.
 function Resolve-EntityNameList {
+  <#
+  .SYNOPSIS
+  Resolve a list of entity IDs to their friendly names.
+  .DESCRIPTION
+  For each element in Ids, if the Map contains that key the mapped value is output; otherwise the original value.
+  Null / empty input yields an empty array.
+.PARAMETER Ids
+  Collection of IDs to resolve.
+.PARAMETER UserMap
+  Hashtable mapping user IDs to friendly names.
+.PARAMETER GroupMap
+  Hashtable mapping group IDs to friendly names.
+.PARAMETER RoleMap
+  Hashtable mapping role IDs to friendly names.
+.PARAMETER AppMap
+  Hashtable mapping application IDs to friendly names.
+.EXAMPLE
+  Convert-IdListToNames -List $policy.conditions.users.includeUsers -Map $UserMap
+#>
   [CmdletBinding()]
   param(
     [string[]]$Ids,
@@ -243,6 +344,23 @@ function Resolve-EntityNameList {
 
 # Replace GUIDs in arbitrary free‑text with friendly names (users, groups, roles, apps) when resolvable.
 function Resolve-EntityGuidsInText {
+  <#
+  .SYNOPSIS
+  Replace GUIDs in text with friendly names from provided maps.
+  .DESCRIPTION
+  Scans the input text for GUIDs and replaces them with their corresponding friendly names
+  .PARAMETER Text
+  The input text containing potential GUIDs to resolve.
+  .PARAMETER UserMap
+  Hashtable mapping user IDs to friendly names.
+  .PARAMETER GroupMap
+  Hashtable mapping group IDs to friendly names.
+  .PARAMETER RoleMap
+  Hashtable mapping role IDs to friendly names.
+  .PARAMETER AppMap
+  Hashtable mapping application IDs to friendly names.
+
+  #>
   [CmdletBinding()]
   param(
     [string]$Text,
@@ -273,6 +391,8 @@ Set-Alias -Name Ensure-GraphConnection -Value Connect-GraphContext -ErrorAction 
 Set-Alias -Name Safe-Get -Value Invoke-SafeGet -ErrorAction SilentlyContinue
 Set-Alias -Name Translate-List -Value Convert-IdListToName -ErrorAction SilentlyContinue
 
+# Ensure required modules are present before attempting to connect
+Initialize-GraphModule
 Connect-GraphContext
 
 # Script metadata / version stamp (bump when feature changes)
@@ -360,21 +480,6 @@ $UserMap = @{}; $GroupMap = @{}; $RoleMap = @{}; $AppMap = @{}; $LocMap = @{}; $
 
 foreach ($id in $userIds) { $obj = Invoke-SafeGet { Get-MgUser -UserId $id -Property Id, DisplayName } ; if ($obj) { $UserMap[$id] = $obj.DisplayName } }
 foreach ($id in $groupIds) { $obj = Invoke-SafeGet { Get-MgGroup -GroupId $id -Property Id, DisplayName } ; if ($obj) { $GroupMap[$id] = $obj.DisplayName } }
-<#
-  Role Resolution Improvement:
-  CA policy includeRoles/excludeRoles can contain either:
-    - Active directoryRole object IDs (Get-MgDirectoryRole returns these)
-    - roleTemplateId GUIDs (directoryRole.roleTemplateId OR roleDefinition.templateId)
-    - Unified roleDefinition IDs (roleManagement/directory/roleDefinitions)
-  Previous implementation only attempted Get-MgDirectoryRole per ID which fails for
-  templateId / roleDefinition IDs when the role is not currently activated.
-  New approach:
-    1. Bulk fetch active directoryRoles (captures id + roleTemplateId)
-    2. Bulk fetch roleDefinitions (captures id + templateId)
-    3. Build a composite lookup map so ANY of the above identifiers resolve.
-    4. Fallback: per-id Get-MgDirectoryRole (in case of transient activation) if still unknown.
-    5. Log unresolved role IDs (they will remain as raw IDs in output).
-*#>
 
 $roleLookup = @{}
 $dirRoles = Invoke-SafeGet { Get-MgDirectoryRole -All }
@@ -428,7 +533,6 @@ foreach ($id in $touIds) {
   }
 }
 
-# (Deprecated: Translate-List now provided via alias to Convert-IdListToNames)
 
 # ---------------- Construct CAExport ----------------
 $CAExport = @()
@@ -455,66 +559,66 @@ foreach ($Policy in $CAPolicy) {
 
   $rawOriginal = if ($RawPolicyIndex.ContainsKey($Policy.id)) { $RawPolicyIndex[$Policy.id] } else { $null }
 
-  $CAExport += [pscustomobject]@{
-    Name                            = $Policy.displayName
-    PolicyId                        = $Policy.id
-    Status                          = $Policy.state
-    DateModified                    = $DateModified
-    Users                           = ''
-    UsersInclude                    = ($IncludeUG -join ", `r`n")
-    UsersExclude                    = ($ExcludeUG -join ", `r`n")
-    UsersIncludeIds                 = if ($rawOriginal) { ($rawOriginal.conditions.users.includeUsers -join ", `r`n") } else { $null }
-    UsersExcludeIds                 = if ($rawOriginal) { ($rawOriginal.conditions.users.excludeUsers -join ", `r`n") } else { $null }
-    RolesIncludeIds                 = if ($rawOriginal) { ($rawOriginal.conditions.users.includeRoles -join ", `r`n") } else { $null }
-    RolesExcludeIds                 = if ($rawOriginal) { ($rawOriginal.conditions.users.excludeRoles -join ", `r`n") } else { $null }
-    'Cloud apps or actions'         = ''
-    ApplicationsIncluded            = ($Policy.conditions.applications.includeApplications -join ", `r`n")
-    ApplicationsExcluded            = ($Policy.conditions.applications.excludeApplications -join ", `r`n")
-    ApplicationsIncludedIds         = if ($rawOriginal) { ($rawOriginal.conditions.applications.includeApplications -join ", `r`n") } else { $null }
-    ApplicationsExcludedIds         = if ($rawOriginal) { ($rawOriginal.conditions.applications.excludeApplications -join ", `r`n") } else { $null }
-    userActions                     = ($Policy.conditions.applications.includeUserActions -join ", `r`n")
-    AuthContext                     = ($Policy.conditions.applications.includeAuthenticationContextClassReferences -join ", `r`n")
-    Conditions                      = ''
-    UserRisk                        = ($Policy.conditions.userRiskLevels -join ", `r`n")
-    SignInRisk                      = ($Policy.conditions.signInRiskLevels -join ", `r`n")
-    PlatformsInclude                = ($InclPlat -join ", `r`n")
-    PlatformsExclude                = ($ExclPlat -join ", `r`n")
-    LocationsIncluded               = ($InclLocation -join ", `r`n")
-    LocationsExcluded               = ($ExclLocation -join ", `r`n")
-    LocationsIncludedIds            = if ($rawOriginal) { ($rawOriginal.conditions.locations.includeLocations -join ", `r`n") } else { $null }
-    LocationsExcludedIds            = if ($rawOriginal) { ($rawOriginal.conditions.locations.excludeLocations -join ", `r`n") } else { $null }
-    ClientApps                      = ($Policy.conditions.clientAppTypes -join ", `r`n")
-    DevicesIncluded                 = ($InclDev -join ", `r`n")
-    DevicesExcluded                 = ($ExclDev -join ", `r`n")
-    DeviceFilters                   = ($devFilters -join ", `r`n")
-    AuthenticationFlows             = $authenticationFlowsString
-    'Grant Controls'                = ''
-    Block                           = if ($Policy.grantControls.builtInControls -contains 'Block') { 'True' } else { '' }
-    'Require MFA'                   = if ($Policy.grantControls.builtInControls -contains 'Mfa') { 'True' } else { '' }
-    'Authentication Strength MFA'   = $Policy.grantControls.authenticationStrength.displayName
-    CompliantDevice                 = if ($Policy.grantControls.builtInControls -contains 'CompliantDevice') { 'True' } else { '' }
-    DomainJoinedDevice              = if ($Policy.grantControls.builtInControls -contains 'DomainJoinedDevice') { 'True' } else { '' }
-    CompliantApplication            = if ($Policy.grantControls.builtInControls -contains 'CompliantApplication') { 'True' } else { '' }
-    ApprovedApplication             = if ($Policy.grantControls.builtInControls -contains 'ApprovedApplication') { 'True' } else { '' }
-    PasswordChange                  = if ($Policy.grantControls.builtInControls -contains 'PasswordChange') { 'True' } else { '' }
-    TermsOfUse                      = ((Convert-IdListToName $Policy.grantControls.termsOfUse $TouMap) -join ", `r`n")
-    TermsOfUseIds                   = if ($rawOriginal) { ($rawOriginal.grantControls.termsOfUse -join ", `r`n") } else { $null }
-    CustomControls                  = ($Policy.grantControls.customAuthenticationFactors -join ", `r`n")
-    GrantOperator                   = $Policy.grantControls.operator
-    'Session Controls'              = ''
-    ApplicationEnforcedRestrictions = $Policy.sessionControls.applicationEnforcedRestrictions.isEnabled
-    CloudAppSecurity                = $Policy.sessionControls.cloudAppSecurity.isEnabled
-    SignInFrequency                 = if ($Policy.sessionControls.signInFrequency.value -and $Policy.sessionControls.signInFrequency.type) { "$( $Policy.sessionControls.signInFrequency.value ) $( $Policy.sessionControls.signInFrequency.type )" }
-    PersistentBrowser               = $Policy.sessionControls.persistentBrowser.mode
-    ContinuousAccessEvaluation      = $Policy.sessionControls.continuousAccessEvaluation.mode
-    ResilientDefaults               = $Policy.sessionControls.disableResilienceDefaults
-    secureSignInSession             = $Policy.sessionControls.additionalProperties.secureSignInSession.values
-    CreatedDateTime                 = $Policy.createdDateTime
-    Description                     = $Policy.description
-    RawJson                         = ''
-    IsDuplicate                     = $false
-    DuplicateMatches                = ''
-    ContentHash                     = ''
+  $CAExport += [PSCustomObject][ordered]@{
+    Name                                = $Policy.displayName
+    PolicyId                            = $Policy.id
+    Status                              = $Policy.state
+    Modified                            = $DateModified
+    Users                               = ''
+    'Included Users'                    = ($IncludeUG -join ", `r`n")
+    'Excluded Users'                    = ($ExcludeUG -join ", `r`n")
+    UsersIncludeIds                     = if ($rawOriginal) { ($rawOriginal.conditions.users.includeUsers -join ", `r`n") } else { $null }
+    UsersExcludeIds                     = if ($rawOriginal) { ($rawOriginal.conditions.users.excludeUsers -join ", `r`n") } else { $null }
+    RolesIncludeIds                     = if ($rawOriginal) { ($rawOriginal.conditions.users.includeRoles -join ", `r`n") } else { $null }
+    RolesExcludeIds                     = if ($rawOriginal) { ($rawOriginal.conditions.users.excludeRoles -join ", `r`n") } else { $null }
+    'Cloud apps or actions'             = ''
+    'Included Applications'             = ($Policy.conditions.applications.includeApplications -join ", `r`n")
+    'Excluded Applications'             = ($Policy.conditions.applications.excludeApplications -join ", `r`n")
+    ApplicationsIncludedIds             = if ($rawOriginal) { ($rawOriginal.conditions.applications.includeApplications -join ", `r`n") } else { $null }
+    ApplicationsExcludedIds             = if ($rawOriginal) { ($rawOriginal.conditions.applications.excludeApplications -join ", `r`n") } else { $null }
+    'User Actions'                      = ($Policy.conditions.applications.includeUserActions -join ", `r`n")
+    'Auth Context'                      = ($Policy.conditions.applications.includeAuthenticationContextClassReferences -join ", `r`n")
+    Conditions                          = ''
+    'User Risk'                         = ($Policy.conditions.userRiskLevels -join ", `r`n")
+    'SignIn Risk'                       = ($Policy.conditions.signInRiskLevels -join ", `r`n")
+    'Platforms Include'                 = ($InclPlat -join ", `r`n")
+    'Platforms Exclude'                 = ($ExclPlat -join ", `r`n")
+    'Locations Included'                = ($InclLocation -join ", `r`n")
+    'Locations Excluded'                = ($ExclLocation -join ", `r`n")
+    LocationsIncludedIds                = if ($rawOriginal) { ($rawOriginal.conditions.locations.includeLocations -join ", `r`n") } else { $null }
+    LocationsExcludedIds                = if ($rawOriginal) { ($rawOriginal.conditions.locations.excludeLocations -join ", `r`n") } else { $null }
+    'Client Apps'                       = ($Policy.conditions.clientAppTypes -join ", `r`n")
+    'Devices Included'                  = ($InclDev -join ", `r`n")
+    'Devices Excluded'                  = ($ExclDev -join ", `r`n")
+    'Device Filters'                    = ($devFilters -join ", `r`n")
+    'Authentication Flows'              = $authenticationFlowsString
+    'Grant Controls'                    = ''
+    'Block'                             = if ($Policy.grantControls.builtInControls -contains 'Block') { 'True' } else { '' }
+    'Require MFA'                       = if ($Policy.grantControls.builtInControls -contains 'Mfa') { 'True' } else { '' }
+    'Authentication Strength MFA'       = $Policy.grantControls.authenticationStrength.displayName
+    'Compliant Device'                  = if ($Policy.grantControls.builtInControls -contains 'CompliantDevice') { 'True' } else { '' }
+    'Domain Joined Device'              = if ($Policy.grantControls.builtInControls -contains 'DomainJoinedDevice') { 'True' } else { '' }
+    'Compliant Application'             = if ($Policy.grantControls.builtInControls -contains 'CompliantApplication') { 'True' } else { '' }
+    'Approved Application'              = if ($Policy.grantControls.builtInControls -contains 'ApprovedApplication') { 'True' } else { '' }
+    'Password Change'                   = if ($Policy.grantControls.builtInControls -contains 'PasswordChange') { 'True' } else { '' }
+    'Terms Of Use'                      = ((Convert-IdListToName $Policy.grantControls.termsOfUse $TouMap) -join ", `r`n")
+    'TermsOfUseIds'                     = if ($rawOriginal) { ($rawOriginal.grantControls.termsOfUse -join ", `r`n") } else { $null }
+    'Custom Controls'                   = ($Policy.grantControls.customAuthenticationFactors -join ", `r`n")
+    'Grant Operator'                    = $Policy.grantControls.operator
+    'Session Controls'                  = ''
+    'Application Enforced Restrictions' = $Policy.sessionControls.applicationEnforcedRestrictions.isEnabled
+    'Cloud App Security'                = $Policy.sessionControls.cloudAppSecurity.isEnabled
+    'Sign In Frequency'                 = if ($Policy.sessionControls.signInFrequency.value -and $Policy.sessionControls.signInFrequency.type) { "$( $Policy.sessionControls.signInFrequency.value ) $( $Policy.sessionControls.signInFrequency.type )" }
+    'Persistent Browser'                = $Policy.sessionControls.persistentBrowser.mode
+    'Continuous Access Evaluation'      = $Policy.sessionControls.continuousAccessEvaluation.mode
+    'Resilient Defaults'                = $Policy.sessionControls.disableResilienceDefaults
+    'Secure Sign In Session'            = $Policy.sessionControls.additionalProperties.secureSignInSession.values
+    Created                             = $Policy.createdDateTime
+    Description                         = $Policy.description
+    RawJson                             = ''
+    IsDuplicate                         = $false
+    'Duplicate Matches'                 = ''
+    ContentHash                         = ''
   }
 }
 
@@ -523,7 +627,7 @@ if ($CAExport.Count -gt 1) {
   $hashGroups = @{}
   foreach ($p in $CAExport) {
     # Build a normalized object (exclude date/time / id / description fields to reduce false positives)
-    $norm = $p | Select-Object * -ExcludeProperty PolicyId, DateModified, CreatedDateTime, Description, DuplicateMatches, IsDuplicate, RawJson, ContentHash
+    $norm = $p | Select-Object * -ExcludeProperty PolicyId, DateModified, CreatedDateTime, Description, 'Duplicate Matches', IsDuplicate, RawJson, ContentHash
     $normJson = ($norm | ConvertTo-Json -Depth 8)
     $bytes = [Text.Encoding]::UTF8.GetBytes($normJson)
     $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -536,7 +640,7 @@ if ($CAExport.Count -gt 1) {
     if ($kv.Value.Count -gt 1) {
       foreach ($p in $kv.Value) {
         $p.IsDuplicate = $true
-        $p.DuplicateMatches = ($kv.Value | Where-Object { $_.Name -ne $p.Name } | ForEach-Object { $_.Name }) -join ', '
+        $p.'Duplicate Matches' = ($kv.Value | Where-Object { $_.Name -ne $p.Name } | ForEach-Object { $_.Name }) -join ', '
       }
     }
   }
@@ -550,7 +654,7 @@ if ($PSBoundParameters.ContainsKey('CsvPivot')) { $CsvPivotExport = [bool]$CsvPi
 # Default behavior: if no explicit export switches supplied, emit HTML + JSON + CSV (pivot remains opt-in)
 if (-not ($HTMLExport -or $JsonExport -or $CsvExport -or $CsvPivotExport)) { $HTMLExport = $true; $JsonExport = $true; $CsvExport = $true }
 $LinkURL = 'https://entra.microsoft.com/#view/Microsoft_AAD_ConditionalAccess/PolicyBlade/PolicyMenuBlade/~/Policies/policyId/'
-$baseName = "CAExport_${TenantName}_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+$baseName = "CAExportRecs_${TenantName}_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
 $FileName = "$baseName.html"
 $JsonFileName = "$baseName.json"
 $CsvFileName = "$baseName.csv"
@@ -987,13 +1091,13 @@ if (-not $NoRecommendations) {
 
 $pivot = @()
 $pivotFields = @(
-  'Status', 'DateModified', 'CreatedDateTime', 'Description', 'DuplicateMatches',
-  'UsersInclude', 'UsersExclude', 'RolesIncludeIds', 'RolesExcludeIds',
-  'ApplicationsIncluded', 'ApplicationsExcluded', 'userActions', 'AuthContext',
-  'UserRisk', 'SignInRisk', 'PlatformsInclude', 'PlatformsExclude', 'ClientApps',
-  'LocationsIncluded', 'LocationsExcluded', 'DevicesIncluded', 'DevicesExcluded', 'DeviceFilters', 'AuthenticationFlows',
-  'Block', 'Require MFA', 'Authentication Strength MFA', 'CompliantDevice', 'DomainJoinedDevice', 'CompliantApplication', 'ApprovedApplication', 'PasswordChange', 'TermsOfUse', 'CustomControls', 'GrantOperator',
-  'ApplicationEnforcedRestrictions', 'CloudAppSecurity', 'SignInFrequency', 'PersistentBrowser', 'ContinuousAccessEvaluation', 'ResilientDefaults', 'secureSignInSession'
+  'Status', 'Modified', 'Created', 'Description',
+  'Included Users', 'Excluded Users', 'RolesIncludeIds', 'RolesExcludeIds',
+  'Included Applications', 'Excluded Applications', 'User Actions', 'Auth Context',
+  'User Risk', 'SignIn Risk', 'Platforms Include', 'Platforms Exclude', 'Client Apps',
+  'Locations Included', 'Locations Excluded', 'Devices Included', 'Devices Excluded', 'Device Filters', 'Authentication Flows',
+  'Block', 'Require MFA', 'Authentication Strength MFA', 'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Terms Of Use', 'Custom Controls', 'Grant Operator',
+  'Application Enforced Restrictions', 'Cloud App Security', 'Sign In Frequency', 'Persistent Browser', 'Continuous Access Evaluation', 'Resilient Defaults', 'Secure Sign In Session', 'Duplicate Matches'
 )
 
 if ($CAExport.Count -gt 0) {
@@ -1062,7 +1166,7 @@ function Get-RecommendationsHtmlFragment {
 
 if ($HTMLExport) {
   if (-not $NoRecommendations) {
-    $SecurityCheck = (Get-RecommendationsHtmlFragment -Recommendations $recommendations) -replace "id='ca-security-checks' style=''", "id='panel-recommendations' role='tabpanel' aria-labelledby='tab-recommendations' aria-hidden='true' style='display:none;'"
+    $SecurityCheck = (Get-RecommendationsHtmlFragment -Recommendations $recommendations) -replace "id='ca-security-checks' style=''", "id='panel-recommendations' role='tabpanel' aria-labelledby='tab-recommendations' aria-hidden='true' style='display:none;padding:68px 10px'"
   }
   else {
     $SecurityCheck = ''
@@ -1081,14 +1185,14 @@ if ($HTMLExport) {
   html, body { font-family: Arial, sans-serif; margin:0; padding:0; }
   .title { font-size: 1.5em; font-weight: bold; }
   /* Navigation */
-  .navbar-custom { position:fixed; top:0; left:0; right:0; display:flex; align-items:center; justify-content:space-between; background:#005494; color:#fff; padding:14px 20px; box-shadow:0 2px 4px rgba(0,0,0,.25); z-index:999; font-size:14px; }
-  .no-recs-banner { margin:70px 18px 10px 18px; background:#fff4cc; border:1px solid #e0c766; padding:10px 14px; border-radius:5px; font-size:0.75rem; color:#5a4700; box-shadow:0 1px 2px rgba(0,0,0,.05); }
+  .navbar-custom { position:fixed; top:0; left:0; right:0; display:flex; align-items:center; justify-content:space-between; background:#005494; color:#fff; padding:14px 18px; box-shadow:0 2px 4px rgba(0,0,0,.25); z-index:999; font-size:14px; }
+  .no-recs-banner { margin:70px 16px 10px 18px; background:#fff4cc; border:1px solid #e0c766; padding:10px 14px; border-radius:5px; font-size:0.75rem; color:#5a4700; box-shadow:0 1px 2px rgba(0,0,0,.05); }
   /* Offset main tab panels so content isn't hidden under fixed navbar */
   /* Panel offsets: recommendations needs more vertical offset due to heading density; others can be tighter */
-  #panel-recommendations { padding-top:70px; margin-top:0; scroll-margin-top:80px; }
-  #panel-summary, #panel-policies { padding-top:48px; margin-top:0; scroll-margin-top:60px; }
+  #panel-recommendations { padding-top:68px; margin-top:0; scroll-margin-top:80px; }
+  #panel-summary, #panel-policies { padding:46px 5px; margin-top:0; scroll-margin-top:60px; }
   /* Fine-tune summary since its internal section already has top margin */
-  #panel-summary .summary-wrapper { margin-top:10px !important; }
+  #panel-summary .summary-wrapper { margin-top:10px !important; padding-left:5px; }
   .nav-left, .nav-center, .nav-right { display:flex; align-items:center; }
   .nav-center { flex:1; justify-content:center; font-weight:600; }
   .nav-left .brand { font-weight:700; margin-left:8px; }
@@ -1105,7 +1209,7 @@ if ($HTMLExport) {
   /* Table */
   table { border-collapse: collapse; margin-bottom:30px; margin-top:55px; font-size:0.9em; min-width:400px; width:100%; table-layout:auto; }
   thead tr { background:linear-gradient(90deg,#005494,#0a79c5); color:#ffffff; text-align:center; }
-  th, td { padding:8px 12px; border:1px solid #d2d2d2; vertical-align:top; text-align:center; }
+  th, td { padding:8px 8px; border:1px solid #d2d2d2; vertical-align:top; text-align:center; }
   /* Dynamic width adjustments: allow natural content sizing, but keep some guidance */
   th.name-col, td.name-col { min-width:180px; }
   th.bool-col, td.bool-col { width:46px; min-width:46px; }
@@ -1122,11 +1226,11 @@ if ($HTMLExport) {
   .sticky-name { position:sticky; inset-inline-start:0; background:#005494; color:#fff; z-index:5; font-weight:700; text-align:left; box-shadow:4px 0 6px -4px rgba(0,0,0,.35); }
   .sticky-name.colselected { outline:none; }
   /* Sticky header (below navbar ~55px high) */
-  .sticky-header thead th { position:sticky; top:55px; z-index:6; }
+  .sticky-header thead th { position:sticky; top:55px; z-index:6; background:linear-gradient(90deg,#005494,#0a79c5); }
   .sticky-header thead th.sticky-name { z-index:7; }
   .sticky-name a { color:#fff; }
   tbody tr:nth-of-type(even) .sticky-name { background:#547c9b; }
-  tbody tr:nth-of-type(5), tbody tr:nth-of-type(8), tbody tr:nth-of-type(13), tbody tr:nth-of-type(25), tbody tr:nth-of-type(37) { background-color:#005494 !important; }
+/*  tbody tr:nth-of-type(5), tbody tr:nth-of-type(8), tbody tr:nth-of-type(13), tbody tr:nth-of-type(25), tbody tr:nth-of-type(37) { background-color:#005494 !important; }*/
   .tooltip-container { position:relative; display:inline-block; }
   .tooltip-text { visibility:hidden; width:200px; background:#000; color:#fff; text-align:center; border-radius:6px; padding:5px 0; position:absolute; z-index:1; top:115%; left:50%; margin-left:-100px; opacity:0; transition:opacity .3s; }
   .tooltip-container:hover .tooltip-text { visibility:visible; opacity:1; }
@@ -1217,7 +1321,7 @@ if ($HTMLExport) {
   .status-report { background:#fff4cc; color:#8c6d00; border:1px solid #f2dd8f; }
   td:has(details.raw-json) { min-width:240px; }
   /* Legend & utility bars */
-  .legend-bar { margin:55px 0 12px 0; background:#ffffff; border:1px solid #d8dee4; border-left:4px solid #005494; padding:8px 12px; border-radius:4px; font-size:0.68rem; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .legend-bar { margin:25px 0 12px 0; background:#ffffff; border:1px solid #d8dee4; border-left:4px solid #005494; padding:8px 12px; border-radius:4px; font-size:0.68rem; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
   .layout-toggle { background:#ffffff; color:#005494; border:1px solid #c3d1dc; padding:4px 8px; font-size:0.65rem; border-radius:4px; cursor:pointer; }
   .layout-toggle.active { background:#005494; color:#fff; }
   .legend-title { font-weight:700; margin-right:4px; }
@@ -1285,8 +1389,8 @@ if ($HTMLExport) {
   }
 
   $summaryTable = @()
-  $summaryTable += '<div class="summary-section summary-wrapper" style="margin:55px 0 10px 0;">'
-  $summaryTable += '<h2 style="margin:0 0 6px 0;font-size:1rem;color:#003553;letter-spacing:.5px;">Policy Summary</h2>'
+  $summaryTable += '<div class="summary-section summary-wrapper" style="margin:20px 25px;">'
+  $summaryTable += '<h2 style="margin:10px 6px;font-size:1rem;color:#003553;letter-spacing:.5px;">Policy Summary</h2>'
   $summaryTable += '<table class="summary-table">'
   $summaryTable += '<thead><tr><th>Metric</th><th>Value</th><th>Percent</th></tr></thead><tbody>'
   function Add-SummaryRow {
@@ -1358,20 +1462,20 @@ if ($HTMLExport) {
   $HtmlParts += $legendHtml
   # Define columns (reuse CSV default ordering for consistency, but can trim for HTML readability)
   $htmlColumns = @(
-    'Name', 'Status', 'DateModified', 'CreatedDateTime', 'Description', 'DuplicateMatches',
-    'UsersInclude', 'UsersExclude', 'UsersIncludeIds', 'UsersExcludeIds', 'RolesIncludeIds', 'RolesExcludeIds',
-    'ApplicationsIncluded', 'ApplicationsExcluded', 'ApplicationsIncludedIds', 'ApplicationsExcludedIds',
-    'userActions', 'AuthContext', 'UserRisk', 'SignInRisk', 'PlatformsInclude', 'PlatformsExclude',
-    'LocationsIncluded', 'LocationsExcluded', 'LocationsIncludedIds', 'LocationsExcludedIds', 'ClientApps',
-    'DevicesIncluded', 'DevicesExcluded', 'DeviceFilters', 'AuthenticationFlows', 'Block', 'Require MFA', 'Authentication Strength MFA',
-    'CompliantDevice', 'DomainJoinedDevice', 'CompliantApplication', 'ApprovedApplication', 'PasswordChange', 'TermsOfUse', 'TermsOfUseIds', 'CustomControls', 'GrantOperator',
-    'ApplicationEnforcedRestrictions', 'CloudAppSecurity', 'SignInFrequency', 'PersistentBrowser', 'ContinuousAccessEvaluation', 'ResilientDefaults', 'secureSignInSession', 'RawJson'
+    'Name', 'Status', 'Modified', 'Created', 'Description',
+    'Included Users', 'Excluded Users', 'UsersIncludeIds', 'UsersExcludeIds', 'RolesIncludeIds', 'RolesExcludeIds',
+    'Included Applications', 'Excluded Applications', 'ApplicationsIncludedIds', 'ApplicationsExcludedIds',
+    'User Actions', 'Auth Context', 'User Risk', 'SignIn Risk', 'Platforms Include', 'Platforms Exclude',
+    'Locations Included', 'Locations Excluded', 'LocationsIncludedIds', 'LocationsExcludedIds', 'Client Apps',
+    'Devices Included', 'Devices Excluded', 'Device Filters', 'Authentication Flows', 'Block', 'Require MFA', 'Authentication Strength MFA',
+    'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Terms Of Use', 'TermsOfUseIds', 'Custom Controls', 'Grant Operator',
+    'Application Enforced Restrictions', 'Cloud App Security', 'Sign In Frequency', 'Persistent Browser', 'Continuous Access Evaluation', 'Resilient Defaults', 'Secure Sign In Session', 'RawJson', 'Duplicate Matches'
   )
   # Build table rows per policy
   $table = @()
   $table += '<table class="sticky-header">'
   # Specify boolean columns for icon rendering
-  $boolColumns = @('Block', 'Require MFA', 'CompliantDevice', 'DomainJoinedDevice', 'CompliantApplication', 'ApprovedApplication', 'PasswordChange', 'ApplicationEnforcedRestrictions', 'CloudAppSecurity', 'ResilientDefaults')
+  $boolColumns = @('Block', 'Require MFA', 'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Application Enforced Restrictions', 'Cloud App Security', 'Resilient Defaults')
   $header = '<thead><tr>' + ($htmlColumns | ForEach-Object {
       if ($_ -eq 'Name') { '<th id="th-name" class="sticky-name name-col">Name</th>' }
       elseif ($_ -eq 'Status') { '<th>Status</th>' }
@@ -1830,14 +1934,14 @@ if ($CsvExport) {
   Write-Info 'Saving to File: CSV (one row per policy)'
   $LaunchCsv = Join-Path -Path $ExportLocation -ChildPath $CsvFileName
   $defaultColumns = @(
-    'Name', 'PolicyId', 'Status', 'DateModified', 'CreatedDateTime', 'Description', 'DuplicateMatches',
-    'UsersInclude', 'UsersExclude', 'UsersIncludeIds', 'UsersExcludeIds', 'RolesIncludeIds', 'RolesExcludeIds',
-    'ApplicationsIncluded', 'ApplicationsExcluded', 'ApplicationsIncludedIds', 'ApplicationsExcludedIds',
-    'userActions', 'AuthContext', 'UserRisk', 'SignInRisk', 'PlatformsInclude', 'PlatformsExclude',
-    'LocationsIncluded', 'LocationsExcluded', 'LocationsIncludedIds', 'LocationsExcludedIds', 'ClientApps',
-    'DevicesIncluded', 'DevicesExcluded', 'DeviceFilters', 'AuthenticationFlows', 'Block', 'Require MFA', 'Authentication Strength MFA',
-    'CompliantDevice', 'DomainJoinedDevice', 'CompliantApplication', 'ApprovedApplication', 'PasswordChange', 'TermsOfUse', 'TermsOfUseIds', 'CustomControls', 'GrantOperator',
-    'ApplicationEnforcedRestrictions', 'CloudAppSecurity', 'SignInFrequency', 'PersistentBrowser', 'ContinuousAccessEvaluation', 'ResilientDefaults', 'secureSignInSession'
+    'Name', 'PolicyId', 'Status', 'Modified', 'Created', 'Description',
+    'Included Users', 'Excluded Users', 'UsersIncludeIds', 'UsersExcludeIds', 'RolesIncludeIds', 'RolesExcludeIds',
+    'Included Applications', 'Excluded Applications', 'ApplicationsIncludedIds', 'ApplicationsExcludedIds',
+    'User Actions', 'Auth Context', 'User Risk', 'SignIn Risk', 'Platforms Include', 'Platforms Exclude',
+    'Locations Included', 'Locations Excluded', 'LocationsIncludedIds', 'LocationsExcludedIds', 'Client Apps',
+    'Devices Included', 'Devices Excluded', 'Device Filters', 'Authentication Flows', 'Block', 'Require MFA', 'Authentication Strength MFA',
+    'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Terms Of Use', 'TermsOfUseIds', 'Custom Controls', 'Grant Operator',
+    'Application Enforced Restrictions', 'Cloud App Security', 'Sign In Frequency', 'Persistent Browser', 'Continuous Access Evaluation', 'Resilient Defaults', 'Secure Sign In Session', 'Duplicate Matches'
   )
   $chosenColumns = if ($CsvColumns) { $CsvColumns } else { $defaultColumns }
   $available = if ($CAExport.Count -gt 0) { $CAExport[0].PSObject.Properties.Name } else { @() }

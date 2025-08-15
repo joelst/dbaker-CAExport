@@ -6,6 +6,15 @@
 	.DESCRIPTION
        Exports CA Policy to HTML Format for auditing/historical purposes.
 
+	.PARAMETER TenantID
+		Optional. The Azure AD tenant ID to connect to. If not specified, connects to the default tenant.
+
+	.PARAMETER PolicyID
+		Optional. A specific Conditional Access policy ID (GUID) to export. If not specified, all policies are exported.
+
+	.PARAMETER Csv
+		Switch. Generate a CSV file in pivot format (wide format) for analysis in Excel or BI tools.
+
 	.NOTES
 		Douglas Baker
 		@dougsbaker
@@ -30,12 +39,18 @@
 [CmdletBinding()]
 # Suppress long line warnings for embedded HTML
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidLongLines', '')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAlignAssignmentStatement', '')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseConsistentIndentation', '')]
 param (
   [Parameter()]
   [String]$TenantID,
   [Parameter()]
-  [String]$PolicyID
+  [String]$PolicyID,
+  [switch]$Csv
 )
+
+# Reference parameters to satisfy analyzer usage checks
+$null = $TenantID
 
 function Write-Info { param([string]$Message) Write-Information -MessageData $Message -InformationAction Continue }
 function Write-Warn { param([string]$Message) Write-Warning $Message }
@@ -45,37 +60,122 @@ function Test-ModuleInstalled {
   param([string[]]$ModuleNames)
   $missing = @(); foreach ($m in $ModuleNames) { if (-not (Get-Module -ListAvailable -Name $m)) { $missing += $m } }; return $missing
 }
-function Ensure-GraphModules { $req = 'Microsoft.Graph.Identity.SignIns', 'Microsoft.Graph.Authentication'; $missing = Test-ModuleInstalled $req; if ($missing) { Write-Info "Installing modules: $($missing -join ', ')"; foreach ($m in $missing) { Install-Module $m -Scope CurrentUser -Force -AcceptLicense -ErrorAction Stop | Out-Null } } }
-function Test-GraphConnected { try { Get-MgOrganization -ErrorAction Stop | Out-Null; return $true } catch { return $false } }
-function Get-CurrentGraphScopes { try { (Get-MgContext).Scopes } catch { @() } }
-function Ensure-GraphConnection {
-  param([string[]]$RequiredScopes = @('Policy.Read.All', 'Directory.Read.All', 'Application.Read.All', 'Agreement.Read.All'))
+
+function Initialize-GraphModule {
+  <#
+.SYNOPSIS
+  Ensure required PowerShell modules are installed and loadable for the current user.
+.DESCRIPTION
+  Verifies presence of Microsoft Graph modules used by this script and installs them to CurrentUser scope when missing.
+  Attempts to trust PSGallery and install the NuGet provider when necessary. Imports modules after install.
+.PARAMETER RequiredModules
+  The list of module names to validate/install. Defaults to Microsoft Graph modules used by this script.
+.EXAMPLE
   Ensure-GraphModules
+#>
+  [CmdletBinding()]
+  param(
+    [string[]]$RequiredModules = @(
+      'Microsoft.Graph',
+      'Microsoft.Graph.Authentication',
+      'Microsoft.Graph.Identity.DirectoryManagement',
+      'Microsoft.Graph.Identity.SignIns'
+    )
+  )
+
+  try {
+    # Prefer TLS 1.2 for gallery operations (safe no-op on newer PowerShell)
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+  }
+  catch {
+    Write-Verbose 'Failed to set SecurityProtocol to TLS 1.2; proceeding with defaults.'
+  }
+
+  # Ensure NuGet provider exists (for Install-Module)
+  try {
+    $nuget = Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue
+    if (-not $nuget) {
+      Write-Info 'Installing NuGet package provider (CurrentUser)'
+      Install-PackageProvider -Name NuGet -Scope CurrentUser -Force -MinimumVersion '2.8.5.201' -ErrorAction Stop | Out-Null
+    }
+  }
+  catch {
+    Write-Warn ('Failed to install NuGet provider: {0}' -f $_.Exception.Message)
+  }
+
+  # Ensure PSGallery is available and trusted
+  try {
+    $repo = Get-PSRepository -Name 'PSGallery' -ErrorAction Stop
+    if ($repo.InstallationPolicy -ne 'Trusted') {
+      try { Set-PSRepository -Name 'PSGallery' -InstallationPolicy Trusted -ErrorAction Stop } catch { Write-Warn 'Could not set PSGallery as Trusted. You may be prompted during install.' }
+    }
+  }
+  catch {
+    Write-Warn 'PowerShell Gallery (PSGallery) not found. Module installation may fail until the repository is available.'
+  }
+
+  foreach ($m in $RequiredModules) {
+    $installed = Get-Module -ListAvailable -Name $m
+    if (-not $installed) {
+      Write-Info ('Installing module: {0} (CurrentUser)' -f $m)
+      try {
+        Install-Module -Name $m -Scope CurrentUser -AllowClobber -Force -ErrorAction Stop
+      }
+      catch {
+        Write-Warn ("Failed to install module '{0}': {1}" -f $m, $_.Exception.Message)
+      }
+    }
+    # Import (best-effort)
+    #try {
+      #Import-Module -Name $m -Force -ErrorAction Stop
+    #}
+    #catch {
+      #Write-Warn ("Failed to import module '{0}': {1}" -f $m, $_.Exception.Message)
+    #}
+  }
+}
+
+function Test-GraphConnected { try { Get-MgOrganization -ErrorAction Stop | Out-Null; return $true } catch { return $false } }
+function Get-CurrentGraphScope { try { (Get-MgContext).Scopes } catch { @() } }
+function Connect-GraphContext {
+  param([string[]]$RequiredScopes = @('Policy.Read.All', 'Directory.Read.All', 'Application.Read.All', 'Agreement.Read.All'))
+  Initialize-GraphModule
   $connected = Test-GraphConnected
-  $current = Get-CurrentGraphScopes
-  $missingScopes = @(); foreach ($s in $RequiredScopes) { if ($current -notcontains $s) { $missingScopes += $s } }
-  if (-not $connected -or $missingScopes) {
+  $current = Get-CurrentGraphScope
+  $still = @(); foreach ($s in $RequiredScopes) { if ($current -notcontains $s) { $still += $s } }
+  if (-not $connected -or $still) {
     Write-Info 'Connecting to Microsoft Graph...'
-    try { Connect-MgGraph -Scopes $RequiredScopes -NoWelcome -ErrorAction Stop | Out-Null }
+    try {
+      if ($TenantID) {
+        Connect-MgGraph -Scopes $RequiredScopes -TenantId $TenantID -ErrorAction Stop | Out-Null
+      }
+      else {
+        Connect-MgGraph -Scopes $RequiredScopes -ErrorAction Stop | Out-Null
+      }
+    }
     catch { Write-Err "Unable to connect to Microsoft Graph: $_"; throw }
   }
   if (-not (Test-GraphConnected)) { Write-Err 'Failed to connect to Microsoft Graph.'; exit 1 }
-  $current = Get-CurrentGraphScopes
-  $still = @(); foreach ($s in $RequiredScopes) { if ($current -notcontains $s) { $still += $s } }
+  $current = Get-CurrentGraphScope
   if ($still) { Write-Warn "Connected but missing scopes: $($still -join ', ')" }
   Write-Info "Connected scopes: $($current -join ', ')"
 }
 
 $ExportLocation = $PSScriptRoot; if (!$ExportLocation) { $ExportLocation = $PWD }
-$FileName = '\\CAPolicy.html'
 $HTMLExport = $true
+$CsvExport = $Csv
 
-Ensure-GraphConnection
+Connect-GraphContext
 
 $TenantData = Get-MgOrganization
 $TenantName = $TenantData.DisplayName
 $date = Get-Date
 Write-Info "Connected: $TenantName tenant"
+
+# Generate timestamped filename
+$baseName = "CAExport_${TenantName}_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+$FileName = "$baseName.html"
+$CsvFileName = "$baseName-pivot.csv"
 
 
 #Collect CA Policy
@@ -84,8 +184,7 @@ if ($PolicyID) {
   $CAPolicy = Get-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId $PolicyID
 }
 else {
-  $CAPolicy = Get-MgIdentityConditionalAccessPolicy -All -ExpandProperty *
-
+  $CAPolicy = Get-MgIdentityConditionalAccessPolicy -All
 }
 
 $TenantData = Get-MgOrganization
@@ -111,68 +210,38 @@ $ADsearch = $AdUsers | Where-Object {
 }
 
 #users Hashtable
-$mgobjects = Get-MgDirectoryObjectById -Ids $ADsearch
+$mgobjects = if ($ADsearch -and $ADsearch.Count -gt 0) { Get-MgDirectoryObjectById -Ids $ADsearch } else { @() }
 $mgObjectsLookup = @{}
-foreach ($obj in $mgobjects) {
-  $mgObjectsLookup[$obj.Id] = $obj.AdditionalProperties.displayName
-}
+if ($mgobjects) { $mgobjects | ForEach-Object { $mgObjectsLookup[$_.Id] = $_.AdditionalProperties.displayName } }
 
-
-#Change Guid's
-foreach ($policy in $caPolicy) {
-  if (-not $policy.Conditions -or -not $policy.Conditions.Users) { continue }
-  # Loop through each user in ExcludeUsers and replace with displayName if found in $mgObjectsLookup
-  for ($i = 0; $i -lt $policy.Conditions.Users.ExcludeUsers.Count; $i++) {
-    $userId = $policy.Conditions.Users.ExcludeUsers[$i]
-    if ($mgObjectsLookup.ContainsKey($userId)) {
-      $policy.Conditions.Users.ExcludeUsers[$i] = $mgObjectsLookup[$userId]
-    }
-  }
-
-  for ($i = 0; $i -lt $policy.Conditions.Users.IncludeUsers.Count; $i++) {
-    $userId = $policy.Conditions.Users.IncludeUsers[$i]
-    if ($mgObjectsLookup.ContainsKey($userId)) {
-      $policy.Conditions.Users.IncludeUsers[$i] = $mgObjectsLookup[$userId]
-    }
-  }
-  for ($i = 0; $i -lt $policy.Conditions.Users.IncludeGroups.Count; $i++) {
-    $userId = $policy.Conditions.Users.IncludeGroups[$i]
-    if ($mgObjectsLookup.ContainsKey($userId)) {
-      $policy.Conditions.Users.IncludeGroups[$i] = $mgObjectsLookup[$userId]
-    }
-  }
-  for ($i = 0; $i -lt $policy.Conditions.Users.ExcludeGroups.Count; $i++) {
-    $userId = $policy.Conditions.Users.ExcludeGroups[$i]
-    if ($mgObjectsLookup.ContainsKey($userId)) {
-      $policy.Conditions.Users.ExcludeGroups[$i] = $mgObjectsLookup[$userId]
-    }
-  }
-  for ($i = 0; $i -lt $policy.Conditions.Users.IncludeRoles.Count; $i++) {
-    $userId = $policy.Conditions.Users.IncludeRoles[$i]
-    if ($mgObjectsLookup.ContainsKey($userId)) {
-      $policy.Conditions.Users.IncludeRoles[$i] = $mgObjectsLookup[$userId]
-    }
-  }
-  for ($i = 0; $i -lt $policy.Conditions.Users.ExcludeRoles.Count; $i++) {
-    $userId = $policy.Conditions.Users.ExcludeRoles[$i]
-    if ($mgObjectsLookup.ContainsKey($userId)) {
-      $policy.Conditions.Users.ExcludeRoles[$i] = $mgObjectsLookup[$userId]
-    }
+# Applications lookup - collect all application IDs from policies
+$AppIds = @()
+foreach ($policy in $CAPolicy) {
+  if ($policy.Conditions -and $policy.Conditions.Applications) {
+    $AppIds += $policy.Conditions.Applications.IncludeApplications
+    $AppIds += $policy.Conditions.Applications.ExcludeApplications
   }
 }
+$AppIds = $AppIds | Where-Object { $_ -and ([Guid]::TryParse($_, [ref][Guid]::Empty)) } | Sort-Object -Unique
 
-}
-
-#Swap App ID with name
-$MGApps = Get-MgServicePrincipal -All
-#Hash Table
+# Populate applications hashtable
 $MGAppsLookup = @{}
-foreach ($obj in $MGApps) {
-  $MGAppsLookup[$obj.AppId] = "<div class='tooltip-container'>" + $obj.DisplayName + "<span class='tooltip-text'>App Id:" + $obj.AppId + '</span></div>'
+foreach ($AppId in $AppIds) {
+  try {
+    $app = Get-MgServicePrincipal -ServicePrincipalId $AppId -Property Id, DisplayName, AppId -ErrorAction SilentlyContinue
+    if ($app) {
+      $MGAppsLookup[$AppId] = $app.DisplayName
+    }
+  }
+  catch {
+    # Service principal not found or access denied - skip
+    Write-Verbose "Could not retrieve service principal for ID '$AppId': $_"
+  }
 }
+
 #"<div class='tooltip-container'>" + $obj.DisplayName +"<span class='tooltip-text'>App Id:"+ $obj.AppId +"</span></div>"
 
-foreach ($policy in $caPolicy) {
+foreach ($policy in $CAPolicy) {
   if (-not $policy.Conditions -or -not $policy.Conditions.Applications) { continue }
 
   for ($i = 0; $i -lt $policy.Conditions.Applications.ExcludeApplications.Count; $i++) {
@@ -190,7 +259,6 @@ foreach ($policy in $caPolicy) {
   }
 }
 
-}
 
 #Swap Location with Names
 $mgLoc = Get-MgIdentityConditionalAccessNamedLocation
@@ -198,7 +266,7 @@ $MGLocLookup = @{}
 foreach ($obj in $mgLoc) {
   $MGLocLookup[$obj.Id] = $obj.DisplayName
 }
-foreach ($policy in $caPolicy) {
+foreach ($policy in $CAPolicy) {
   if (-not $policy.Conditions -or -not $policy.Conditions.Locations) { continue }
   for ($i = 0; $i -lt $policy.Conditions.Locations.IncludeLocations.Count; $i++) {
     $LocId = $policy.Conditions.Locations.IncludeLocations[$i]
@@ -214,7 +282,6 @@ foreach ($policy in $caPolicy) {
   }
 }
 
-}
 
 #Switch TOU Id for Name
 $mgTou = Get-MgAgreement
@@ -222,7 +289,7 @@ $MGTouLookup = @{}
 foreach ($obj in $mgTou) {
   $MGTouLookup[$obj.Id] = $obj.DisplayName
 }
-foreach ($policy in $caPolicy) {
+foreach ($policy in $CAPolicy) {
   if (-not $policy.GrantControls -or -not $policy.GrantControls.TermsOfUse) { continue }
 
   for ($i = 0; $i -lt $policy.GrantControls.TermsOfUse.Count; $i++) {
@@ -232,7 +299,7 @@ foreach ($policy in $caPolicy) {
     }
   }
 }
-}
+
 #swap Admin Roles
 $mgRole = Get-MgDirectoryRoleTemplate
 $mgRoleLookup = @{}
@@ -262,7 +329,7 @@ foreach ($policy in $caPolicy) {
 }
 
 # exit
-$CAExport = [PSCustomObject]@()
+$CAExport = @()
 
 $AdUsers = @()
 $Apps = @()
@@ -275,10 +342,9 @@ foreach ( $Policy in $CAPolicy) {
   $IncludeUG += $Policy.Conditions.Users.IncludeGroups
   $IncludeUG += $Policy.Conditions.Users.IncludeRoles
   $DateCreated = $null
-  $DateCreated = $policy.CreatedDateTime
+  $DateCreated = $Policy.CreatedDateTime
   $DateModified = $null
   $DateModified = $Policy.ModifiedDateTime
-
 
   $ExcludeUG = $null
   $ExcludeUG = $Policy.Conditions.Users.ExcludeUsers
@@ -288,13 +354,10 @@ foreach ( $Policy in $CAPolicy) {
 
   $Apps += $Policy.Conditions.Applications.IncludeApplications
   $Apps += $Policy.Conditions.Applications.ExcludeApplications
-
-
   $InclLocation = $Null
   $ExclLocation = $Null
   $InclLocation = $Policy.Conditions.Locations.includelocations
   $ExclLocation = $Policy.Conditions.Locations.Excludelocations
-
   $InclPlat = $Null
   $ExclPlat = $Null
   $InclPlat = $Policy.Conditions.Platforms.IncludePlatforms
@@ -306,105 +369,94 @@ foreach ( $Policy in $CAPolicy) {
   $devFilters = $null
   $devFilters = $Policy.Conditions.Devices.DeviceFilter.Rule
 
-  $CAExport += New-Object PSObject -Property @{
-    Name                            = $Policy.DisplayName
-    Status                          = $Policy.State
-    DateModified                    = $DateModified
-    Users                           = ''
-    UsersInclude                    = ($IncludeUG -join ", `r`n")
-    UsersExclude                    = ($ExcludeUG -join ", `r`n")
-    'Cloud apps or actions'         = ''
-    ApplicationsIncluded            = ($Policy.Conditions.Applications.IncludeApplications -join ", `r`n")
-    ApplicationsExcluded            = ($Policy.Conditions.Applications.ExcludeApplications -join ", `r`n")
-    userActions                     = ($Policy.Conditions.Applications.IncludeUserActions -join ", `r`n")
-    AuthContext                     = ($Policy.Conditions.Applications.IncludeAuthenticationContextClassReferences -join ", `r`n")
-    Conditions                      = ''
-    UserRisk                        = ($Policy.Conditions.UserRiskLevels -join ", `r`n")
-    SignInRisk                      = ($Policy.Conditions.SignInRiskLevels -join ", `r`n")
+  $CAExport += [PSCustomObject][ordered]@{
+    Name = $Policy.DisplayName
+    Status = $Policy.State
+    Created = $DateCreated
+    Modified = $DateModified
+    'Included Users' = ($IncludeUG -join ", `r`n")
+    'Excluded Users' = ($ExcludeUG -join ", `r`n")
+    'Cloud apps or actions' = ''
+    'Included Applications' = ($Policy.Conditions.Applications.IncludeApplications -join ", `r`n")
+    'Excluded Applications' = ($Policy.Conditions.Applications.ExcludeApplications -join ", `r`n")
+    'User Actions' = ($Policy.Conditions.Applications.IncludeUserActions -join ", `r`n")
+    'Auth Context' = ($Policy.Conditions.Applications.IncludeAuthenticationContextClassReferences -join ", `r`n")
+    Conditions = ''
+    'User Risk' = ($Policy.Conditions.UserRiskLevels -join ", `r`n")
+    'Sign In Risk' = ($Policy.Conditions.SignInRiskLevels -join ", `r`n")
     # Platforms = $Policy.Conditions.Platforms;
-    PlatformsInclude                = ($InclPlat -join ", `r`n")
-    PlatformsExclude                = ($ExclPlat -join ", `r`n")
+    'Included Platforms ' = ($InclPlat -join ", `r`n")
+    'Excluded Platforms ' = ($ExclPlat -join ", `r`n")
     # Locations = $Policy.Conditions.Locations;
-    LocationsIncluded               = ($InclLocation -join ", `r`n")
-    LocationsExcluded               = ($ExclLocation -join ", `r`n")
-    ClientApps                      = ($Policy.Conditions.ClientAppTypes -join ", `r`n")
+    'Included Locations' = ($InclLocation -join ", `r`n")
+    'Excluded Locations' = ($ExclLocation -join ", `r`n")
+    'Client Apps' = ($Policy.Conditions.ClientAppTypes -join ", `r`n")
     # Devices = $Policy.Conditions.Devices;
-    DevicesIncluded                 = ($InclDev -join ", `r`n")
-    DevicesExcluded                 = ($ExclDev -join ", `r`n")
-    DeviceFilters                   = ($devFilters -join ", `r`n")
-    'Grant Controls'                = ''
+    'Included Devices' = ($InclDev -join ", `r`n")
+    'Excluded Devices' = ($ExclDev -join ", `r`n")
+    'Device Filters' = ($devFilters -join ", `r`n")
+    'Access Controls' = ''
+    'Grant Controls' = ''
     # Grant = ($Policy.GrantControls.BuiltInControls -join ", `r`n");
-    Block                           = if ($Policy.GrantControls.BuiltInControls -contains 'Block') { 'True' } else { '' }
-    'Require MFA'                   = if ($Policy.GrantControls.BuiltInControls -contains 'Mfa') { 'True' } else { '' }
-    'Authentication Strength MFA'   = $Policy.GrantControls.AuthenticationStrength.DisplayName
-    'CompliantDevice'               = if ($Policy.GrantControls.BuiltInControls -contains 'CompliantDevice') { 'True' } else { '' }
-    'DomainJoinedDevice'            = if ($Policy.GrantControls.BuiltInControls -contains 'DomainJoinedDevice') { 'True' } else { '' }
-    'CompliantApplication'          = if ($Policy.GrantControls.BuiltInControls -contains 'CompliantApplication') { 'True' } else { '' }
-    'ApprovedApplication'           = if ($Policy.GrantControls.BuiltInControls -contains 'ApprovedApplication') { 'True' } else { '' }
-    'PasswordChange'                = if ($Policy.GrantControls.BuiltInControls -contains 'PasswordChange') { 'True' } else { '' }
-    TermsOfUse                      = ($Policy.GrantControls.TermsOfUse -join ", `r`n")
-    CustomControls                  = ($Policy.GrantControls.CustomAuthenticationFactors -join ", `r`n")
-    GrantOperator                   = $Policy.GrantControls.Operator
+    Block = if ($Policy.GrantControls.BuiltInControls -contains 'Block') { 'True' } else { '' }
+    'Require MFA' = if ($Policy.GrantControls.BuiltInControls -contains 'Mfa') { 'True' } else { '' }
+    'Authentication Strength MFA' = $Policy.GrantControls.AuthenticationStrength.DisplayName
+    'Compliant Device' = if ($Policy.GrantControls.BuiltInControls -contains 'CompliantDevice') { 'True' } else { '' }
+    'Domain Joined Device' = if ($Policy.GrantControls.BuiltInControls -contains 'DomainJoinedDevice') { 'True' } else { '' }
+    'Compliant Application' = if ($Policy.GrantControls.BuiltInControls -contains 'CompliantApplication') { 'True' } else { '' }
+    'Approved Application' = if ($Policy.GrantControls.BuiltInControls -contains 'ApprovedApplication') { 'True' } else { '' }
+    'Password Change' = if ($Policy.GrantControls.BuiltInControls -contains 'PasswordChange') { 'True' } else { '' }
+    'Terms Of Use' = ($Policy.GrantControls.TermsOfUse -join ", `r`n")
+    'Custom Controls' = ($Policy.GrantControls.CustomAuthenticationFactors -join ", `r`n")
+    GrantOperator = $Policy.GrantControls.Operator
     # Session = $Policy.SessionControls
-    'Session Controls'              = ''
-    ApplicationEnforcedRestrictions = $Policy.SessionControls.ApplicationEnforcedRestrictions.IsEnabled
-    CloudAppSecurity                = $Policy.SessionControls.CloudAppSecurity.IsEnabled
-    SignInFrequency                 = "$($Policy.SessionControls.SignInFrequency.Value) $($conditionalAccessPolicy.SessionControls.SignInFrequency.Type)"
-    PersistentBrowser               = $Policy.SessionControls.PersistentBrowser.Mode
-    ContinuousAccessEvaluation      = $Policy.SessionControls.ContinuousAccessEvaluation.Mode
-    ResiliantDefaults               = $policy.SessionControls.DisableResilienceDefaults
-    secureSignInSession             = $policy.SessionControls.AdditionalProperties.secureSignInSession.Values
+    'Session Controls' = ''
+    'Application Enforced Restrictions' = $Policy.SessionControls.ApplicationEnforcedRestrictions.IsEnabled
+    'Cloud App Security' = $Policy.SessionControls.CloudAppSecurity.IsEnabled
+    'Sign In Frequency' = "$($Policy.SessionControls.SignInFrequency.Value) $($Policy.SessionControls.SignInFrequency.Type)"
+    'Persistent Browser' = $Policy.SessionControls.PersistentBrowser.Mode
+    'Continuous Access Evaluation' = $Policy.SessionControls.ContinuousAccessEvaluation.Mode
+    'Resilient Defaults' = $policy.SessionControls.DisableResilienceDefaults
+    'Secure Sign In Session' = $policy.SessionControls.AdditionalProperties.secureSignInSession.Values
   }
-
 }
-
 
 #Export Setup
 Write-Info 'Pivoting: CA to Export Format'
 $pivot = @()
-$rowItem = New-Object PSObject
-$rowitem | Add-Member -type NoteProperty -Name 'CA Item' -Value 'row1'
-$Pcount = 1
-foreach ($CA in $CAExport) {
-  $rowitem | Add-Member -type NoteProperty -Name "Policy $pcount" -Value 'row1'
-  #$ca.Name
+# Header row
+$rowItem = [PSCustomObject]@{}
+$rowItem | Add-Member -Type NoteProperty -Name 'CA Item' -Value 'row1'
+$pcount = 1
+foreach ($ca in $CAExport) {
+  $rowItem | Add-Member -Type NoteProperty -Name "Policy $pcount" -Value 'row1'
   $pcount += 1
 }
 $pivot += $rowItem
 
-#Add Data to Report
-$Rows = $CAExport | Get-Member | Where-Object { $_.MemberType -eq 'NoteProperty' }
-$Rows | ForEach-Object {
-  $rowItem = New-Object PSObject
-  $rowname = $_.Name
-  $rowitem | Add-Member -type NoteProperty -Name 'CA Item' -Value $_.Name
-  $Pcount = 1
-  foreach ($CA in $CAExport) {
-    $ca | Get-Member | Where-Object { $_.MemberType -eq 'NoteProperty' } | ForEach-Object {
-      $a = $_.name
-      $b = $ca.$a
-      if ($a -eq $rowname) {
-        $rowitem | Add-Member -type NoteProperty -Name "Policy $pcount" -Value $b
-      }
+# Determine properties from the first policy object
+$properties = @()
+if ($CAExport -and $CAExport.Count -gt 0) {
+  $properties = ($CAExport | Select-Object -First 1 | Get-Member -MemberType NoteProperty).Name
+}
 
-    }
-    # $ca.UsersInclude
+# Add property rows
+foreach ($prop in $properties) {
+  $rowItem = [PSCustomObject]@{}
+  $rowItem | Add-Member -Type NoteProperty -Name 'CA Item' -Value $prop
+  $pcount = 1
+  foreach ($ca in $CAExport) {
+    $value = $null
+    try { $value = $ca.$prop } catch { $value = $null }
+    $rowItem | Add-Member -Type NoteProperty -Name "Policy $pcount" -Value $value
     $pcount += 1
   }
   $pivot += $rowItem
 }
 
 
-
 #Set Row Order
-$sort = 'Name', 'Status', 'DateModified', 'Users', 'UsersInclude', 'UsersExclude', 'Cloud apps or actions', 'ApplicationsIncluded', 'ApplicationsExcluded', `
-  'userActions', 'AuthContext', 'Conditions', 'UserRisk', 'SignInRisk', 'PlatformsInclude', 'PlatformsExclude', 'ClientApps', 'LocationsIncluded', `
-  'LocationsExcluded', 'Devices', 'DevicesIncluded', 'DevicesExcluded', 'DeviceFilters', 'Grant Controls', 'Block', 'Require MFA', 'Authentication Strength MFA', 'CompliantDevice', `
-  'DomainJoinedDevice', 'CompliantApplication', 'ApprovedApplication', 'PasswordChange', 'TermsOfUse', 'CustomControls', 'GrantOperator', `
-  'Session Controls', 'ApplicationEnforcedRestrictions', 'CloudAppSecurity', 'SignInFrequency', 'PersistentBrowser', 'ContinuousAccessEvaluation', 'ResiliantDefaults', 'secureSignInSession'
-
-#Debug
-#$pivot | Sort-Object $sort | Out-GridView
+$sort = 'Name', 'Status', 'Created', 'Modified', 'Included Users', 'Excluded Users', 'Cloud apps or actions', 'Included Applications', 'Excluded Applications', 'User Actions', 'Auth Context', 'Conditions', 'User Risk', 'Sign In Risk', 'Included Platforms ', 'Excluded Platforms ', 'Client Apps', 'Included Locations', 'Excluded Locations', 'Devices', 'Included Devices', 'Excluded Devices', 'Device Filters', 'Access Controls', 'Grant Controls', 'Block', 'Require MFA', 'Authentication Strength MFA', 'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Terms Of Use', 'Custom Controls', 'GrantOperator', 'Session Controls', 'Application Enforced Restrictions', 'Cloud App Security', 'Sign In Frequency', 'Persistent Browser', 'Continuous Access Evaluation', 'Resilient Defaults', 'Secure Sign In Session'
 
 
 if ($HTMLExport) {
@@ -428,7 +480,7 @@ if ($HTMLExport) {
         });
     });
     </script>'
-  $html = "<html><head><base href='https://docs.microsoft.com/' target='_blank'>
+  $htmlContent = "<html><head><base href='https://docs.microsoft.com/' target='_blank'>
     <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1, shrink-to-fit=no'>
 
@@ -566,7 +618,7 @@ if ($HTMLExport) {
                         <div class='row'><div><i class='fa fa-server' aria-hidden='true'></i></div><div class='ml-3'><strong>CA Export</strong></div></div>
                     </div>
                     <div class='col-sm' style='text-align:center'>
-                        <strong>$Tenantname</strong>
+                        <strong>$TenantName</strong>
                     </div>
                     <div class='col-sm' style='text-align:right'>
                     <strong>$Date</strong>
@@ -576,9 +628,18 @@ if ($HTMLExport) {
 
 
   Write-Info 'Launching: Web Browser'
-  $Launch = $ExportLocation + $FileName
-  $HTML += $pivot | Where-Object { $_.'CA Item' -ne 'row1' } | Sort-Object { $sort.IndexOf($_.'CA Item') } | ConvertTo-Html -Fragment
+  $Launch = Join-Path -Path $ExportLocation -ChildPath $FileName
+  $table = $pivot | Where-Object { $_.'CA Item' -ne 'row1' } | Sort-Object { $sort.IndexOf($_.'CA Item') } | ConvertTo-Html -Fragment
+  $htmlContent = $htmlContent + $table
   Add-Type -AssemblyName System.Web
-  [System.Web.HttpUtility]::HtmlDecode($HTML) | Out-File $Launch
+  [System.Web.HttpUtility]::HtmlDecode($htmlContent) | Out-File $Launch
   Start-Process $Launch
+}
+
+if ($CsvExport) {
+  Write-Info 'Saving to File: CSV (Pivot)'
+  $LaunchCsv = Join-Path -Path $ExportLocation -ChildPath $CsvFileName
+  $csvData = $pivot | Where-Object { $_.'CA Item' -ne 'row1' } | Sort-Object { $sort.IndexOf($_.'CA Item') }
+  $csvData | Export-Csv -Path $LaunchCsv -NoTypeInformation -Encoding UTF8
+  Write-Info "CSV exported to: $LaunchCsv"
 }

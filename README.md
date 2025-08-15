@@ -31,20 +31,28 @@ Two scripts are provided:
 * Optional fast mode: `-NoRecommendations` skips recommendation analysis (faster, omits Recommendations tab & related JavaScript/state)
 
 Screenshots:
-![Recommendations Tab](CaExport-rec.png)
-![Results Table](CaExport-result.png)
-![Column Select Highlight](CAExport-Select.png)
-
+![Recommendations Tab](./images/CaExport-rec.png)
+![Results Table](./images/CaExport-result.png)
+![Dupolicate Select Highlight](./images/CAExport-Select.png)
+![Summary Table](./images/CaExport-summary.png)
 ---
 ## Installation / Prereqs
 
-PowerShell 7+ recommended (Windows PowerShell 5.1 works but less tested). Ensure Microsoft Graph modules are available:
+PowerShell 7+ recommended. Ensure Microsoft Graph modules are installed. You can install all of the modules using:
 
 ```powershell
 Install-Module Microsoft.Graph -Scope CurrentUser
 ```
 
-When the script runs it will request consent if not already granted.
+To target only the required Microsoft Graph modules, you can specify them individually:
+
+```powershell
+Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
+Install-Module Microsoft.Graph.Identity.DirectoryManagement -Scope CurrentUser
+Install-Module Microsoft.Graph.Identity.SignIns -Scope CurrentUser
+```
+
+When the script runs it will request admin consent to allow it to use Microsoft Graph, if this not already granted. If you do not have permission to grant admin consent, you will need to work with your Entra ID administrator to obtain the necessary permissions.
 
 ---
 ## Quick Start
@@ -66,7 +74,9 @@ When the script runs it will request consent if not already granted.
 ./Export-CAPolicyWithRecs.ps1 -NoRecommendations
 ```
 
-Outputs are timestamped: `CAExport_<TenantName>_YYYYMMDD_HHMMSS.*`
+**Output files are timestamped:**
+- Full script: `CAExportRecs_<TenantName>_YYYYMMDD_HHMMSS.*`
+- Lightweight script: `CAExport_<TenantName>_YYYYMMDD_HHMMSS.*`
 
 ---
 ## Parameters (Full Script)
@@ -75,6 +85,8 @@ Outputs are timestamped: `CAExport_<TenantName>_YYYYMMDD_HHMMSS.*`
 |-----------|------|-------------|
 | `PolicyID` | String (GUID) | Limit export to a single CA policy. |
 | `Html` | Switch | Emit interactive HTML (default if no other export is chosen). |
+| `NoBrowser` | Switch | Generate HTML without automatically launching browser. |
+| `OutputPath` | String | Custom output directory path (defaults to current directory). |
 | `Json` | Switch | Emit enriched JSON (includes duplicate markers). |
 | `Csv` | Switch | Emit flattened CSV of policies. |
 | `CsvPivot` | Switch | Emit pivot‑friendly wide CSV. |
@@ -144,7 +156,7 @@ PRs welcome. Please:
 | Version | Highlights |
 |---------|-----------|
 | 3.1.1 | Pivot CSV dataset restored (wide format); improved role resolution (template & definition IDs), GUID parameter validation, duplicate detection hashing improvements, accessibility & JSON copy utilities. |
-| 3.1 | Added `-NoRecommendations` switch (performance mode; conditional Recommendations tab & banner). |
+
 | 3.0 | Recommendations refactor, duplicate detection, summary tab, accessibility & help improvements. |
 | 2.x | Styling overhaul, column selection improvements. |
 | 1.x | Initial export functionality. |
