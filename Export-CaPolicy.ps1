@@ -1,5 +1,3 @@
-#Conditional Access Export Utility
-
 <#
 	.SYNOPSIS
 		Conditional Access Export Utility
