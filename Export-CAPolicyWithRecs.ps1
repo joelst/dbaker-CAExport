@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Export Conditional Access Policies with Recommendations.
+    Export existing Conditional Access Policies along with recommendations.
 
 .DESCRIPTION
     This script exports Conditional Access (CA) policies from Azure AD to an HTML file.
@@ -65,10 +65,6 @@ This example runs the script and exports all Conditional Access policies with re
   Author:  Douglas Baker @dougsbaker
   Version: 3.1.1
 
-Output report uses open source components for HTML formatting
-- bootstrap - MIT License - https://getbootstrap.com/docs/4.0/about/license/
-- fontawesome - CC BY 4.0 License - https://fontawesome.com/license/free
-
 ############################################################################
 This sample script is not supported under any standard support program or service.
 This sample script is provided AS IS without warranty of any kind.
@@ -94,10 +90,6 @@ param (
   [switch]$NoRecommendations,
   [string[]]$CsvColumns
 )
-<#
-  Reconstructed: helper functions, Graph connection, data retrieval, enrichment, CAExport build, duplicate detection, pivot prep.
-#>
-
 
 function Write-Info {
   <#
@@ -131,6 +123,39 @@ function Write-Warn {
 }
 
 
+function Write-Err {
+  <#
+.SYNOPSIS
+  Write an error message and optionally terminate the script.
+.DESCRIPTION
+  Wrapper around Write-Error for consistent error handling throughout the script.
+.PARAMETER Message
+  The error message to display.
+.EXAMPLE
+  Write-Err 'Critical failure occurred. Exiting.'
+  Emits a formatted error message to the error stream.
+#>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][string]$Message)
+  Write-Error -Message $Message -ErrorAction Continue
+}
+
+function Format-PolicyStatus {
+  <#
+  .SYNOPSIS
+    Formats policy status for better readability in exports
+  .PARAMETER Status
+    The raw policy status from Microsoft Graph
+  .OUTPUTS
+    String - Formatted status for display
+  #>
+  param([string]$Status)
+  switch ($Status) {
+    'enabledForReportingButNotEnforced' { return 'reporting only' }
+    default { return $Status }
+  }
+}
+
 function Initialize-GraphModule {
   <#
 .SYNOPSIS
@@ -146,10 +171,11 @@ function Initialize-GraphModule {
   [CmdletBinding()]
   param(
     [string[]]$RequiredModules = @(
-      'Microsoft.Graph',
       'Microsoft.Graph.Authentication',
       'Microsoft.Graph.Identity.DirectoryManagement',
-      'Microsoft.Graph.Identity.SignIns'
+      'Microsoft.Graph.Identity.SignIns',
+      'Microsoft.Graph.Identity.Governance',
+      'Microsoft.Graph.DeviceManagement.Enrolment'
     )
   )
 
@@ -205,7 +231,6 @@ function Initialize-GraphModule {
   }
 }
 
-
 function Connect-GraphContext {
   <#
 .SYNOPSIS
@@ -237,7 +262,6 @@ function Connect-GraphContext {
     Connect-MgGraph -Scopes $requiredScopes | Out-Null
   }
 }
-
 
 function Invoke-SafeGet {
   <#
@@ -276,7 +300,6 @@ function Convert-IdListToName {
   if (-not $List) { return @() }
   return $List | ForEach-Object { if ($Map.ContainsKey($_)) { $Map[$_] } else { $_ } }
 }
-
 
 function Test-IsGuid {
   <#
@@ -342,7 +365,6 @@ function Resolve-EntityNameList {
   }
 }
 
-# Replace GUIDs in arbitrary free‑text with friendly names (users, groups, roles, apps) when resolvable.
 function Resolve-EntityGuidsInText {
   <#
   .SYNOPSIS
@@ -423,21 +445,31 @@ $Date = (Get-Date).ToString('u')
 
 Write-Info 'Retrieving Conditional Access policies'
 try {
-  $allPolicies = @()
-  $uri = 'https://graph.microsoft.com/beta/identity/conditionalAccess/policies?$top=100'
-  do {
-    $resp = Invoke-MgGraphRequest -Method GET -Uri $uri -OutputType PSObject
-    if ($resp.value) { $allPolicies += $resp.value }
-    $uri = $resp.'@odata.nextLink'
-  } while ($uri)
+  $allPolicies = Get-MgIdentityConditionalAccessPolicy -All
 }
 catch {
-  Write-Warn ('Failed to retrieve policies: {0}' -f $_.Exception.Message)
-  $allPolicies = @()
+  Write-Err ('Failed to retrieve policies: {0}' -f $_.Exception.Message)
+  Write-Err 'Cannot continue without policies. Exiting.'
+  exit 1
 }
 
-if ($PolicyID) { $CAPolicy = $allPolicies | Where-Object { $_.id -eq $PolicyID } } else { $CAPolicy = $allPolicies }
-if (-not $CAPolicy) { Write-Warn 'No policies retrieved.'; $CAPolicy = @() }
+if ($PolicyID) {
+  $CAPolicy = $allPolicies | Where-Object { $_.id -eq $PolicyID }
+  if (-not $CAPolicy) {
+    Write-Err "Policy with ID '$PolicyID' not found. Exiting."
+    exit 1
+  }
+}
+else {
+  $CAPolicy = $allPolicies
+}
+
+if (-not $CAPolicy -or $CAPolicy.Count -eq 0) {
+  Write-Err 'No Conditional Access policies found in tenant. Exiting.'
+  exit 1
+}
+
+Write-Info "Successfully retrieved $($CAPolicy.Count) Conditional Access $(if($CAPolicy.Count -eq 1){'policy'}else{'policies'})"
 
 # Raw snapshot & index
 $RawPolicyObjects = $CAPolicy | ForEach-Object { $_ }  # shallow clone
@@ -482,25 +514,61 @@ foreach ($id in $userIds) { $obj = Invoke-SafeGet { Get-MgUser -UserId $id -Prop
 foreach ($id in $groupIds) { $obj = Invoke-SafeGet { Get-MgGroup -GroupId $id -Property Id, DisplayName } ; if ($obj) { $GroupMap[$id] = $obj.DisplayName } }
 
 $roleLookup = @{}
+
+# Static fallback for common Azure AD role template IDs (used if API calls fail)
+$commonRoleTemplates = @{
+  '62e90394-69f5-4237-9190-012177145e10' = 'Global Administrator'
+  'f28a1f50-f6e7-4571-818b-6a12f2af6b6c' = 'SharePoint Administrator'
+  '29232cdf-9323-42fd-ade2-1d097af3e4de' = 'Exchange Administrator'
+  'b1be1c3e-b65d-4f19-8427-f6fa0d97feb9' = 'Conditional Access Administrator'
+  '729827e3-9c14-49f7-bb1b-9608f156bbb8' = 'Helpdesk Administrator'
+  'b0f54661-2d74-4c50-afa3-1ec803f12efe' = 'Billing Administrator'
+  'fe930be7-5e62-47db-91af-98c3a49a38b1' = 'User Administrator'
+  'c4e39bd9-1100-46d3-8c65-fb160da0071f' = 'Authentication Administrator'
+  '9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3' = 'Application Administrator'
+  '158c047a-c907-4556-b7ef-446551a6b5f7' = 'Cloud Application Administrator'
+  '966707d0-3269-4727-9be2-8c3a10f19b9d' = 'Password Administrator'
+  '7be44c8a-adaf-4e2a-84d6-ab2649e08a13' = 'Privileged Authentication Administrator'
+  'e8611ab8-c189-46e8-94e1-60213ab1f814' = 'Privileged Role Administrator'
+  '194ae4cb-b126-40b2-bd5b-6091b380977d' = 'Security Administrator'
+  '5d6b6bb7-de71-4623-b4af-96380a352509' = 'Security Reader'
+  'e3973bdf-4987-49ae-837a-ba8e231c7286' = 'Azure DevOps Administrator'
+}
+
+# Try to get directory roles from API
 $dirRoles = Invoke-SafeGet { Get-MgDirectoryRole -All }
 if ($dirRoles) {
+  Write-Verbose "Successfully retrieved $($dirRoles.Count) directory roles from API"
   foreach ($r in $dirRoles) {
     if ($r.id -and -not $roleLookup.ContainsKey($r.id)) { $roleLookup[$r.id] = $r.displayName }
     if ($r.roleTemplateId -and -not $roleLookup.ContainsKey($r.roleTemplateId)) { $roleLookup[$r.roleTemplateId] = $r.displayName }
   }
 }
-
-# Retrieve role definitions (unified) via beta endpoint (paged)
-$roleDefs = @()
-$roleDefUri = 'https://graph.microsoft.com/beta/roleManagement/directory/roleDefinitions?$top=200'
-while ($roleDefUri) {
-  $resp = Invoke-SafeGet { Invoke-MgGraphRequest -Method GET -Uri $roleDefUri -OutputType PSObject }
-  if ($resp.value) { $roleDefs += $resp.value }
-  $roleDefUri = $resp.'@odata.nextLink'
+else {
+  Write-Warn 'Get-MgDirectoryRole failed; using static role template fallback for common roles'
+  # Populate lookup with static template mappings as fallback
+  foreach ($kv in $commonRoleTemplates.GetEnumerator()) {
+    $roleLookup[$kv.Key] = $kv.Value
+  }
 }
-foreach ($rd in $roleDefs) {
-  if ($rd.id -and -not $roleLookup.ContainsKey($rd.id)) { $roleLookup[$rd.id] = $rd.displayName }
-  if ($rd.templateId -and -not $roleLookup.ContainsKey($rd.templateId)) { $roleLookup[$rd.templateId] = $rd.displayName }
+
+# Retrieve role definitions using Graph PowerShell module (handles pagination automatically)
+$roleDefs = Invoke-SafeGet { Get-MgRoleManagementDirectoryRoleDefinition -All -Property Id, DisplayName, TemplateId }
+if ($roleDefs) {
+  Write-Verbose "Successfully retrieved $($roleDefs.Count) role definitions from API"
+  foreach ($rd in $roleDefs) {
+    if ($rd.Id -and -not $roleLookup.ContainsKey($rd.Id)) { $roleLookup[$rd.Id] = $rd.DisplayName }
+    if ($rd.TemplateId -and -not $roleLookup.ContainsKey($rd.TemplateId)) { $roleLookup[$rd.TemplateId] = $rd.DisplayName }
+  }
+}
+else {
+  Write-Warn 'Get-MgRoleManagementDirectoryRoleDefinition failed; relying on directory roles and static fallback'
+  # If we don't have role definitions but missed common templates, add them
+  foreach ($kv in $commonRoleTemplates.GetEnumerator()) {
+    if (-not $roleLookup.ContainsKey($kv.Key)) {
+      $roleLookup[$kv.Key] = $kv.Value
+    }
+  }
 }
 
 foreach ($id in $roleIds) {
@@ -508,9 +576,21 @@ foreach ($id in $roleIds) {
     $RoleMap[$id] = $roleLookup[$id]
   }
   else {
-    # Fallback attempt (in case role just became active)
+    # Fallback attempt (in case role just became active or API lookup failed)
     $obj = Invoke-SafeGet { Get-MgDirectoryRole -DirectoryRoleId $id -Property Id, DisplayName }
-    if ($obj) { $RoleMap[$id] = $obj.DisplayName } else { Write-Warn "Unresolved role id: $id" }
+    if ($obj) {
+      $RoleMap[$id] = $obj.DisplayName
+    }
+    else {
+      # Check if this ID matches a known template ID from our static fallback
+      if ($commonRoleTemplates.ContainsKey($id)) {
+        $RoleMap[$id] = $commonRoleTemplates[$id]
+        Write-Verbose "Resolved role ID $id using static template fallback: $($commonRoleTemplates[$id])"
+      }
+      else {
+        Write-Warn "Unresolved role id: $id (not found in API or static fallback)"
+      }
+    }
   }
 }
 # Applications (service principals)
@@ -522,14 +602,14 @@ foreach ($id in $appIds) {
 }
 foreach ($id in $locIds) {
   if (Test-IsGuid $id) {
-    $obj = Invoke-SafeGet { Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/beta/identity/conditionalAccess/namedLocations/$id" }
-    if ($obj) { $LocMap[$id] = $obj.displayName }
+    $obj = Invoke-SafeGet { Get-MgIdentityConditionalAccessNamedLocation -NamedLocationId $id -Property Id, DisplayName }
+    if ($obj) { $LocMap[$id] = $obj.DisplayName }
   }
 }
 foreach ($id in $touIds) {
   if (Test-IsGuid $id) {
-    $obj = Invoke-SafeGet { Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/beta/agreements/$id" }
-    if ($obj) { $TouMap[$id] = $obj.displayName }
+    $obj = Invoke-SafeGet { Get-MgAgreement -AgreementId $id -Property Id, DisplayName }
+    if ($obj) { $TouMap[$id] = $obj.DisplayName }
   }
 }
 
@@ -562,7 +642,7 @@ foreach ($Policy in $CAPolicy) {
   $CAExport += [PSCustomObject][ordered]@{
     Name                                = $Policy.displayName
     PolicyId                            = $Policy.id
-    Status                              = $Policy.state
+    Status                              = Format-PolicyStatus -Status $Policy.state
     Modified                            = $DateModified
     Users                               = ''
     'Included Users'                    = ($IncludeUG -join ", `r`n")
@@ -689,8 +769,46 @@ if (-not $NoRecommendations) {
     }
   }
 
+  # Recommendations based off Microsoft security templates.
+  # SCuBA: Secure Cloud Business Applications
+  <#
+  $recommendations is the in-memory collection that accumulates actionable findings ("recommendations")
+  discovered while analyzing Conditional Access (CA) policies and related configuration. Each element is
+  an instance of the [recommendation] type, which models a single issue, improvement, or best-practice
+  suggestion along with its supporting context.
+
+.VARIABLE
+  $recommendations
+    - Type: [recommendation[]] (array or list of [recommendation] objects)
+    - Purpose: Collects one [recommendation] per detected condition that warrants attention or change.
+    - Lifecycle: Initialized before analysis; appended to as the script evaluates policies; consumed by
+      exporters or written to output at the end of the run.
+
+.TYPE
+  [recommendation]
+    A custom type representing a single actionable recommendation. Typical fields include:
+      - Id            : string      // Stable identifier for correlation/deduplication
+      - Title         : string      // Short, human-readable summary
+      - Description   : string      // Detailed rationale and context/evidence
+      - Severity      : string      // Info | Low | Medium | High | Critical
+      - Category      : string      // e.g., Security, Reliability, Hygiene, Compliance
+      - AppliesTo     : string[]    // Names/IDs of affected policies, assignments, or scopes
+      - Remediation   : string[]    // Concrete steps or guidance to address the finding
+      - References    : string[]    // URLs or document identifiers for further reading
+      - Tags          : string[]    // Optional labels used for filtering/reporting
+      - Metadata      : hashtable   // Optional free-form data for exporters or auditing
+
+.USAGE
+  - Creating and adding:
+      # $recommendations += [recommendation]::new(<id>, <title>, <description>, <severity>, ...)
+      # or instantiate and set properties, then append to $recommendations.
+
+  - Consuming:
+      # Filter, group, and export $recommendations (e.g., JSON/CSV/Markdown) as needed by downstream steps.
+
+#>
   $recommendations = @(
-    [Recommendation]::new(
+    [recommendation]::new(
       'CA-00',
       'Legacy Authentication',
       'Legacy Authentication is blocked or minimized, targeting Legacy Authentication protocols.',
@@ -700,7 +818,7 @@ if (-not $NoRecommendations) {
       $false,
       $true
     ),
-    [Recommendation]::new(
+    [recommendation]::new(
       'CA-01',
       'MFA Policy targets All users Group and All Cloud Apps',
       'There is at least one policy that targets all users and cloud apps.',
@@ -710,7 +828,7 @@ if (-not $NoRecommendations) {
       $false,
       $true
     ),
-    [Recommendation]::new(
+    [recommendation]::new(
       'CA-02',
       'Mobile Device Policy requires MDM or MAM',
       'There is at least one policy that requires MDM or MAM for mobile devices.',
@@ -722,7 +840,7 @@ if (-not $NoRecommendations) {
       $false,
       $true
     ),
-    [Recommendation]::new(
+    [recommendation]::new(
       'CA-03',
       'Require Hybrid Join or Intune Compliance on Windows or Mac',
       'There is at least one policy that requires Hybrid Join or Intune Compliance for Windows or Mac devices.',
@@ -735,7 +853,7 @@ if (-not $NoRecommendations) {
       $false,
       $true
     ),
-    [Recommendation]::new(
+    [recommendation]::new(
       'CA-04',
       'Require MFA for Admins',
       'There is at least one policy that requires Multi-Factor Authentication (MFA) for administrators.',
@@ -748,7 +866,7 @@ if (-not $NoRecommendations) {
       $false,
       $true
     ),
-    [Recommendation]::new(
+    [recommendation]::new(
       'CA-05',
       'Require Phish-Resistant MFA for Admins',
       'There is at least one policy that requires phish-resistant Multi-Factor Authentication (MFA) for administrators.',
@@ -761,7 +879,7 @@ if (-not $NoRecommendations) {
       $false,
       $true
     ),
-    [Recommendation]::new(
+    [recommendation]::new(
       'CA-06',
       'Policy Excludes Same Entities It Includes',
       'There is at least one policy that excludes the same entities it includes, resulting in no effective condition being checked.',
@@ -773,7 +891,7 @@ if (-not $NoRecommendations) {
       $true,
       $false
     )
-    [Recommendation]::new(
+    [recommendation]::new(
       'CA-07',
       'No Users Targeted in Policy',
       'There is at least one policy that does not target any users.',
@@ -785,7 +903,7 @@ if (-not $NoRecommendations) {
       $true,
       $false
     )
-    [Recommendation]::new(
+    [recommendation]::new(
       'CA-08',
       'Direct User Assignment',
       'There are no direct user assignments in the policy.',
@@ -795,7 +913,7 @@ if (-not $NoRecommendations) {
       $true,
       $false
     )
-    [Recommendation]::new(
+    [recommendation]::new(
       'CA-09',
       'Implement Risk-Based Policy',
       'There is at least 1 policy that addresses risk-based conditional access.',
@@ -809,7 +927,7 @@ if (-not $NoRecommendations) {
       $false,
       $true
     )
-    [Recommendation]::new(
+    [recommendation]::new(
       'CA-10',
       'Block Device Code Flow',
       'There is at least 1 policy that blocks device code flow.',
@@ -821,7 +939,7 @@ if (-not $NoRecommendations) {
       $false,
       $true
     )
-    [Recommendation]::new(
+    [recommendation]::new(
       'CA-11',
       'Require MFA to Enroll a Device in Intune',
       'There is at least 1 policy that requires Multi-Factor Authentication (MFA) to enroll a device in Intune.',
@@ -833,7 +951,7 @@ if (-not $NoRecommendations) {
       $false,
       $true
     )
-    [Recommendation]::new(
+    [recommendation]::new(
       'CA-12',
       'Block Unknown/Unsupported Devices',
       'There is no policy that blocks unknown or unsupported devices.',

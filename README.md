@@ -6,7 +6,7 @@ Two scripts are provided:
 
 | Script | Purpose |
 |--------|---------|
-| `Export-CaPolicy.ps1` | Lightweight export – single HTML table of policies. |
+| `Export-CAPolicy.ps1` | Lightweight export – single HTML table of policies. |
 | `Export-CAPolicyWithRecs.ps1` | Full featured export – enrichment, recommendations, duplicate detection, multiple output formats, interactive HTML UI. |
 
 ---

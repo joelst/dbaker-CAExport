@@ -4,7 +4,7 @@
 	.SYNOPSIS
 		Conditional Access Export Utility
 	.DESCRIPTION
-       Exports CA Policy to HTML Format for auditing/historical purposes.
+    Exports CA Policy to HTML
 
 	.PARAMETER TenantID
 		Optional. The Azure AD tenant ID to connect to. If not specified, connects to the default tenant.
@@ -13,7 +13,26 @@
 		Optional. A specific Conditional Access policy ID (GUID) to export. If not specified, all policies are exported.
 
 	.PARAMETER Csv
-		Switch. Generate a CSV file in pivot format (wide format) for analysis in Excel or BI tools.
+		Switch. Generate a CSV file in normalized/flat format for detailed analysis.
+
+	.PARAMETER CsvPivot
+		Switch. Generate a pivot-friendly CSV (wide format) for ad-hoc aggregation in Excel / BI tools.
+
+	.EXAMPLE
+		PS> .\Export-CaPolicy.ps1
+		Exports all Conditional Access policies to HTML format (default).
+
+	.EXAMPLE
+		PS> .\Export-CaPolicy.ps1 -Csv
+		Exports all policies to both HTML and normalized CSV format.
+
+	.EXAMPLE
+		PS> .\Export-CaPolicy.ps1 -CsvPivot
+		Exports all policies to HTML and pivot-friendly CSV format.
+
+	.EXAMPLE
+		PS> .\Export-CaPolicy.ps1 -PolicyID "12345678-1234-1234-1234-123456789012" -Csv -CsvPivot
+		Exports a specific policy to HTML, normalized CSV, and pivot CSV formats.
 
 	.NOTES
 		Douglas Baker
@@ -46,19 +65,94 @@ param (
   [String]$TenantID,
   [Parameter()]
   [String]$PolicyID,
-  [switch]$Csv
+  [switch]$Csv,
+  [switch]$CsvPivot
 )
 
 # Reference parameters to satisfy analyzer usage checks
 $null = $TenantID
 
-function Write-Info { param([string]$Message) Write-Information -MessageData $Message -InformationAction Continue }
-function Write-Warn { param([string]$Message) Write-Warning $Message }
-function Write-Err { param([string]$Message) Write-Error -Message $Message }
+# UTILITY FUNCTIONS
+
+function Write-Info {
+  <#
+  .SYNOPSIS
+    Writes informational messages to the console
+  .PARAMETER Message
+    The message to display
+  #>
+  param([string]$Message)
+  Write-Information -MessageData $Message -InformationAction Continue
+}
+
+function Write-Warn {
+  <#
+  .SYNOPSIS
+    Writes warning messages to the console
+  .PARAMETER Message
+    The warning message to display
+  #>
+  param([string]$Message)
+  Write-Warning $Message
+}
+
+function Write-Err {
+  <#
+  .SYNOPSIS
+    Writes error messages to the console
+  .PARAMETER Message
+    The error message to display
+  #>
+  param([string]$Message)
+  Write-Error -Message $Message
+}
+
+function Format-PolicyStatus {
+  <#
+  .SYNOPSIS
+    Formats policy status for better readability in exports
+  .PARAMETER Status
+    The raw policy status from Microsoft Graph
+  .OUTPUTS
+    String - Formatted status for display
+  #>
+  param([string]$Status)
+  switch ($Status) {
+    'enabledForReportingButNotEnforced' { return 'reporting only' }
+    default { return $Status }
+  }
+}
 
 function Test-ModuleInstalled {
+  <#
+  .SYNOPSIS
+    Checks if PowerShell modules are installed
+  .PARAMETER ModuleNames
+    Array of module names to check
+  .OUTPUTS
+    String[] - Array of missing module names
+  #>
   param([string[]]$ModuleNames)
   $missing = @(); foreach ($m in $ModuleNames) { if (-not (Get-Module -ListAvailable -Name $m)) { $missing += $m } }; return $missing
+}
+
+# Helper function for safe Graph API calls
+function Invoke-SafeGet {
+  <#
+  .SYNOPSIS
+    Executes Graph API calls with error suppression for graceful failure handling
+  .DESCRIPTION
+    Wraps Graph API calls to prevent script termination when individual entities cannot be resolved.
+    Common scenarios include deleted users, inaccessible applications, or permission limitations.
+  .PARAMETER ScriptBlock
+    The Graph API command to execute safely
+  .OUTPUTS
+    Object - The result of the API call, or $null if an error occurred
+  .EXAMPLE
+    $user = Invoke-SafeGet { Get-MgUser -UserId $userId }
+  #>
+  param([Parameter(Mandatory)][ScriptBlock]$ScriptBlock)
+  try { & $ScriptBlock } catch { Write-Verbose ('Invoke-SafeGet suppressed error: {0}' -f $_.Exception.Message); return $null }
 }
 
 function Initialize-GraphModule {
@@ -76,10 +170,10 @@ function Initialize-GraphModule {
   [CmdletBinding()]
   param(
     [string[]]$RequiredModules = @(
-      'Microsoft.Graph',
       'Microsoft.Graph.Authentication',
       'Microsoft.Graph.Identity.DirectoryManagement',
-      'Microsoft.Graph.Identity.SignIns'
+      'Microsoft.Graph.Identity.SignIns',
+      'Microsoft.Graph.DeviceManagement.Enrolment'
     )
   )
 
@@ -135,14 +229,51 @@ function Initialize-GraphModule {
   }
 }
 
-function Test-GraphConnected { try { Get-MgOrganization -ErrorAction Stop | Out-Null; return $true } catch { return $false } }
-function Get-CurrentGraphScope { try { (Get-MgContext).Scopes } catch { @() } }
+# Graph API connection and authentication functions
+
+function Test-GraphConnected {
+  <#
+  .SYNOPSIS
+    Tests if the current session is connected to Microsoft Graph
+  .DESCRIPTION
+    Verifies Graph connectivity by attempting to call Get-MgOrganization
+  .OUTPUTS
+    Boolean - True if connected, False if not connected
+  #>
+  try { Get-MgOrganization -ErrorAction Stop | Out-Null; return $true } catch { return $false }
+}
+
+function Get-CurrentGraphScope {
+  <#
+  .SYNOPSIS
+    Gets the current Graph API scopes for the active connection
+  .DESCRIPTION
+    Retrieves the permission scopes granted to the current Graph session
+  .OUTPUTS
+    String[] - Array of scope names, empty array if not connected
+  #>
+  try { (Get-MgContext).Scopes } catch { @() }
+}
+
 function Connect-GraphContext {
+  <#
+  .SYNOPSIS
+    Establishes connection to Microsoft Graph with required permissions
+  .DESCRIPTION
+    Connects to Microsoft Graph API with the specified scopes. Validates existing connection
+    and only reconnects if missing required scopes or not currently connected.
+  .PARAMETER RequiredScopes
+    Array of permission scopes needed for the script to function properly
+  .EXAMPLE
+    Connect-GraphContext -RequiredScopes @('Policy.Read.All', 'Directory.Read.All')
+  #>
   param([string[]]$RequiredScopes = @('Policy.Read.All', 'Directory.Read.All', 'Application.Read.All', 'Agreement.Read.All'))
+
   Initialize-GraphModule
   $connected = Test-GraphConnected
   $current = Get-CurrentGraphScope
   $still = @(); foreach ($s in $RequiredScopes) { if ($current -notcontains $s) { $still += $s } }
+
   if (-not $connected -or $still) {
     Write-Info 'Connecting to Microsoft Graph...'
     try {
@@ -155,66 +286,119 @@ function Connect-GraphContext {
     }
     catch { Write-Err "Unable to connect to Microsoft Graph: $_"; throw }
   }
+
   if (-not (Test-GraphConnected)) { Write-Err 'Failed to connect to Microsoft Graph.'; exit 1 }
   $current = Get-CurrentGraphScope
   if ($still) { Write-Warn "Connected but missing scopes: $($still -join ', ')" }
   Write-Info "Connected scopes: $($current -join ', ')"
 }
 
+# MAIN SCRIPT EXECUTION
+
+# Initialize variables and paths
 $ExportLocation = $PSScriptRoot; if (!$ExportLocation) { $ExportLocation = $PWD }
 $HTMLExport = $true
 $CsvExport = $Csv
+$CsvPivotExport = $CsvPivot
 
+# Connect to Microsoft Graph with required permissions
 Connect-GraphContext
 
+# Get tenant information for report headers
 $TenantData = Get-MgOrganization
 $TenantName = $TenantData.DisplayName
 $date = Get-Date
 Write-Info "Connected: $TenantName tenant"
 
-# Generate timestamped filename
+# Generate timestamped filename for outputs
 $baseName = "CAExport_${TenantName}_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
 $FileName = "$baseName.html"
-$CsvFileName = "$baseName-pivot.csv"
+$CsvFileName = "$baseName.csv"
+$CsvPivotFileName = "$baseName-pivot.csv"
+
+# CONDITIONAL ACCESS POLICY COLLECTION
 
 
-#Collect CA Policy
 Write-Info 'Exporting: CA Policy'
-if ($PolicyID) {
-  $CAPolicy = Get-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId $PolicyID
+try {
+  if ($PolicyID) {
+    # Export specific policy by ID
+    $CAPolicy = Get-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId $PolicyID
+    if (-not $CAPolicy) {
+      Write-Err "Policy with ID '$PolicyID' not found. Exiting."
+      exit 1
+    }
+  }
+  else {
+    # Export all policies in the tenant
+    $CAPolicy = Get-MgIdentityConditionalAccessPolicy -All
+  }
 }
-else {
-  $CAPolicy = Get-MgIdentityConditionalAccessPolicy -All
+catch {
+  Write-Err ('Failed to retrieve policies: {0}' -f $_.Exception.Message)
+  Write-Err 'Cannot continue without policies. Exiting.'
+  exit 1
 }
+
+if (-not $CAPolicy -or $CAPolicy.Count -eq 0) {
+  Write-Err 'No Conditional Access policies found in tenant. Exiting.'
+  exit 1
+}
+
+Write-Info "Successfully retrieved $($CAPolicy.Count) Conditional Access $(if($CAPolicy.Count -eq 1){'policy'}else{'policies'})"
 
 $TenantData = Get-MgOrganization
 $TenantName = $TenantData.DisplayName
 $date = Get-Date
 
+# ENTITY RESOLUTION - Convert GUIDs to Display Names
+
 
 Write-Info "Extracting: Names from Guid's"
-#Swap User Guid With Names
-#Get Name
-$ADUsers = $CAPolicy.Conditions.Users.IncludeUsers
-$ADUsers += $CAPolicy.Conditions.Users.IncludeGroups
-$ADUsers += $CAPolicy.Conditions.Users.IncludeRoles
-$ADUsers += $CAPolicy.Conditions.Users.ExcludeUsers
-$ADUsers += $CAPolicy.Conditions.Users.ExcludeGroups
-$ADUsers += $CAPolicy.Conditions.Users.ExcludeRoles
 
+# Collect unique IDs from all policies for efficient bulk lookups
+$userIds = [System.Collections.Generic.HashSet[string]]::new()
+$groupIds = [System.Collections.Generic.HashSet[string]]::new()
+$roleIds = [System.Collections.Generic.HashSet[string]]::new()
 
+# Parse all policies to extract unique entity IDs
+foreach ($p in $CAPolicy) {
+  $c = $p.conditions
+  if ($c.users) {
+    # Extract user IDs (skip built-in identifiers like 'All', 'None')
+    foreach ($i in @($c.users.includeUsers)) { if ($i -and $i -notin @('All', 'None', 'GuestsOrExternalUsers') -and ([Guid]::TryParse($i, [ref][Guid]::Empty))) { [void]$userIds.Add($i) } }
+    foreach ($i in @($c.users.excludeUsers)) { if ($i -and ([Guid]::TryParse($i, [ref][Guid]::Empty))) { [void]$userIds.Add($i) } }
 
-# Filter the $AdUsers array to include only valid GUIDs
-$ADsearch = $AdUsers | Where-Object {
-  ([Guid]::TryParse($_, [ref] [Guid]::Empty))
+    # Extract group IDs
+    foreach ($i in @($c.users.includeGroups)) { if ($i -and ([Guid]::TryParse($i, [ref][Guid]::Empty))) { [void]$groupIds.Add($i) } }
+    foreach ($i in @($c.users.excludeGroups)) { if ($i -and ([Guid]::TryParse($i, [ref][Guid]::Empty))) { [void]$groupIds.Add($i) } }
+
+    # Extract role IDs
+    foreach ($i in @($c.users.includeRoles)) { if ($i -and ([Guid]::TryParse($i, [ref][Guid]::Empty))) { [void]$roleIds.Add($i) } }
+    foreach ($i in @($c.users.excludeRoles)) { if ($i -and ([Guid]::TryParse($i, [ref][Guid]::Empty))) { [void]$roleIds.Add($i) } }
+  }
 }
 
-#users Hashtable
-$mgobjects = if ($ADsearch -and $ADsearch.Count -gt 0) { Get-MgDirectoryObjectById -Ids $ADsearch } else { @() }
+# Build unified lookup hashtable for all entities
 $mgObjectsLookup = @{}
-if ($mgobjects) { $mgobjects | ForEach-Object { $mgObjectsLookup[$_.Id] = $_.AdditionalProperties.displayName } }
 
-# Applications lookup - collect all application IDs from policies
+# Resolve Users - Convert user GUIDs to display names
+foreach ($id in $userIds) {
+  $obj = Invoke-SafeGet { Get-MgUser -UserId $id -Property Id, DisplayName }
+  if ($obj) { $mgObjectsLookup[$id] = $obj.DisplayName }
+}
+
+# Resolve Groups - Convert group GUIDs to display names
+foreach ($id in $groupIds) {
+  $obj = Invoke-SafeGet { Get-MgGroup -GroupId $id -Property Id, DisplayName }
+  if ($obj) { $mgObjectsLookup[$id] = $obj.DisplayName }
+}
+
+# ================================================================================================
+# APPLICATION RESOLUTION
+# ================================================================================================
+
+# Collect all application IDs referenced in policies
 $AppIds = @()
 foreach ($policy in $CAPolicy) {
   if ($policy.Conditions -and $policy.Conditions.Applications) {
@@ -222,28 +406,29 @@ foreach ($policy in $CAPolicy) {
     $AppIds += $policy.Conditions.Applications.ExcludeApplications
   }
 }
+# Filter to valid GUIDs and remove duplicates
 $AppIds = $AppIds | Where-Object { $_ -and ([Guid]::TryParse($_, [ref][Guid]::Empty)) } | Sort-Object -Unique
 
-# Populate applications hashtable
+# Build application display name lookup table
 $MGAppsLookup = @{}
 foreach ($AppId in $AppIds) {
-  try {
-    $app = Get-MgServicePrincipal -ServicePrincipalId $AppId -Property Id, DisplayName, AppId -ErrorAction SilentlyContinue
-    if ($app) {
-      $MGAppsLookup[$AppId] = $app.DisplayName
-    }
-  }
-  catch {
-    # Service principal not found or access denied - skip
-    Write-Verbose "Could not retrieve service principal for ID '$AppId': $_"
+  if ([Guid]::TryParse($AppId, [ref][Guid]::Empty)) {
+    $obj = Invoke-SafeGet { Get-MgServicePrincipal -ServicePrincipalId $AppId -Property Id, DisplayName, AppId }
+    if ($obj) { $MGAppsLookup[$AppId] = $obj.DisplayName }
   }
 }
 
+
+# UPDATE POLICIES WITH RESOLVED NAMES
+
+
+# Replace application GUIDs with display names in policy objects
 #"<div class='tooltip-container'>" + $obj.DisplayName +"<span class='tooltip-text'>App Id:"+ $obj.AppId +"</span></div>"
 
 foreach ($policy in $CAPolicy) {
   if (-not $policy.Conditions -or -not $policy.Conditions.Applications) { continue }
 
+  # Update excluded applications
   for ($i = 0; $i -lt $policy.Conditions.Applications.ExcludeApplications.Count; $i++) {
     $AppId = $policy.Conditions.Applications.ExcludeApplications[$i]
     if ($MGAppsLookup.ContainsKey($AppId)) {
@@ -251,6 +436,7 @@ foreach ($policy in $CAPolicy) {
     }
   }
 
+  # Update included applications
   for ($i = 0; $i -lt $policy.Conditions.Applications.IncludeApplications.Count; $i++) {
     $AppId = $policy.Conditions.Applications.IncludeApplications[$i]
     if ($MGAppsLookup.ContainsKey($AppId)) {
@@ -260,20 +446,29 @@ foreach ($policy in $CAPolicy) {
 }
 
 
-#Swap Location with Names
+
+# NAMED LOCATIONS RESOLUTION
+
+# Get all named locations and build lookup table
 $mgLoc = Get-MgIdentityConditionalAccessNamedLocation
 $MGLocLookup = @{}
 foreach ($obj in $mgLoc) {
   $MGLocLookup[$obj.Id] = $obj.DisplayName
 }
+
+# Replace location GUIDs with display names in policy objects
 foreach ($policy in $CAPolicy) {
   if (-not $policy.Conditions -or -not $policy.Conditions.Locations) { continue }
+
+  # Update included locations
   for ($i = 0; $i -lt $policy.Conditions.Locations.IncludeLocations.Count; $i++) {
     $LocId = $policy.Conditions.Locations.IncludeLocations[$i]
     if ($MGLocLookup.ContainsKey($LocId)) {
       $policy.Conditions.Locations.IncludeLocations[$i] = $MGLocLookup[$LocId]
     }
   }
+
+  # Update excluded locations
   for ($i = 0; $i -lt $policy.Conditions.Locations.ExcludeLocations.Count; $i++) {
     $LocId = $policy.Conditions.Locations.ExcludeLocations[$i]
     if ($MGLocLookup.ContainsKey($LocId)) {
@@ -283,12 +478,16 @@ foreach ($policy in $CAPolicy) {
 }
 
 
-#Switch TOU Id for Name
+# TERMS OF USE RESOLUTION
+
+# Get all terms of use agreements and build lookup table
 $mgTou = Get-MgAgreement
 $MGTouLookup = @{}
 foreach ($obj in $mgTou) {
   $MGTouLookup[$obj.Id] = $obj.DisplayName
 }
+
+# Replace terms of use GUIDs with display names in policy grant controls
 foreach ($policy in $CAPolicy) {
   if (-not $policy.GrantControls -or -not $policy.GrantControls.TermsOfUse) { continue }
 
@@ -300,68 +499,165 @@ foreach ($policy in $CAPolicy) {
   }
 }
 
-#swap Admin Roles
-$mgRole = Get-MgDirectoryRoleTemplate
-$mgRoleLookup = @{}
-foreach ($obj in $mgRole) {
-  $mgRoleLookup[$obj.Id] = $obj.DisplayName
+
+# ROLE RESOLUTION - Administrative Roles
+
+# Build comprehensive role lookup table from multiple sources
+$roleLookup = @{}
+
+# Static fallback for common Azure AD role template IDs (used if API calls fail)
+$commonRoleTemplates = @{
+  '62e90394-69f5-4237-9190-012177145e10' = 'Global Administrator'
+  'f28a1f50-f6e7-4571-818b-6a12f2af6b6c' = 'SharePoint Administrator'
+  '29232cdf-9323-42fd-ade2-1d097af3e4de' = 'Exchange Administrator'
+  'b1be1c3e-b65d-4f19-8427-f6fa0d97feb9' = 'Conditional Access Administrator'
+  '729827e3-9c14-49f7-bb1b-9608f156bbb8' = 'Helpdesk Administrator'
+  'b0f54661-2d74-4c50-afa3-1ec803f12efe' = 'Billing Administrator'
+  'fe930be7-5e62-47db-91af-98c3a49a38b1' = 'User Administrator'
+  'c4e39bd9-1100-46d3-8c65-fb160da0071f' = 'Authentication Administrator'
+  '9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3' = 'Application Administrator'
+  '158c047a-c907-4556-b7ef-446551a6b5f7' = 'Cloud Application Administrator'
+  '966707d0-3269-4727-9be2-8c3a10f19b9d' = 'Password Administrator'
+  '7be44c8a-adaf-4e2a-84d6-ab2649e08a13' = 'Privileged Authentication Administrator'
+  'e8611ab8-c189-46e8-94e1-60213ab1f814' = 'Privileged Role Administrator'
+  '194ae4cb-b126-40b2-bd5b-6091b380977d' = 'Security Administrator'
+  '5d6b6bb7-de71-4623-b4af-96380a352509' = 'Security Reader'
+  'e3973bdf-4987-49ae-837a-ba8e231c7286' = 'Azure DevOps Administrator'
 }
+
+# Get active directory roles (currently activated roles in the tenant)
+$dirRoles = Invoke-SafeGet { Get-MgDirectoryRole -All }
+if ($dirRoles) {
+  Write-Verbose "Successfully retrieved $($dirRoles.Count) directory roles from API"
+  foreach ($r in $dirRoles) {
+    # Store both the instance ID and template ID for flexible lookup
+    if ($r.Id -and -not $roleLookup.ContainsKey($r.Id)) { $roleLookup[$r.Id] = $r.DisplayName }
+    if ($r.RoleTemplateId -and -not $roleLookup.ContainsKey($r.RoleTemplateId)) { $roleLookup[$r.RoleTemplateId] = $r.DisplayName }
+  }
+}
+else {
+  Write-Warn 'Get-MgDirectoryRole failed; using static role template fallback for common roles'
+  # Populate lookup with static template mappings as fallback
+  foreach ($kv in $commonRoleTemplates.GetEnumerator()) {
+    $roleLookup[$kv.Key] = $kv.Value
+  }
+}
+
+# Get role definitions for comprehensive coverage (includes inactive roles)
+$roleDefs = Invoke-SafeGet { Get-MgRoleManagementDirectoryRoleDefinition -All -Property Id, DisplayName, TemplateId }
+if ($roleDefs) {
+  Write-Verbose "Successfully retrieved $($roleDefs.Count) role definitions from API"
+  foreach ($rd in $roleDefs) {
+    # Store both definition ID and template ID
+    if ($rd.Id -and -not $roleLookup.ContainsKey($rd.Id)) { $roleLookup[$rd.Id] = $rd.DisplayName }
+    if ($rd.TemplateId -and -not $roleLookup.ContainsKey($rd.TemplateId)) { $roleLookup[$rd.TemplateId] = $rd.DisplayName }
+  }
+}
+else {
+  Write-Warn 'Get-MgRoleManagementDirectoryRoleDefinition failed; relying on directory roles and static fallback'
+  # If we don't have role definitions but missed common templates, add them
+  foreach ($kv in $commonRoleTemplates.GetEnumerator()) {
+    if (-not $roleLookup.ContainsKey($kv.Key)) {
+      $roleLookup[$kv.Key] = $kv.Value
+    }
+  }
+}
+
+# Process role IDs found in policies and add to unified lookup
+foreach ($id in $roleIds) {
+  if ($roleLookup.ContainsKey($id)) {
+    $mgObjectsLookup[$id] = $roleLookup[$id]
+  }
+  else {
+    # Fallback attempt for roles that might have just become active or API lookup failed
+    $obj = Invoke-SafeGet { Get-MgDirectoryRole -DirectoryRoleId $id -Property Id, DisplayName }
+    if ($obj) {
+      $mgObjectsLookup[$id] = $obj.DisplayName
+    }
+    else {
+      # Check if this ID matches a known template ID from our static fallback
+      if ($commonRoleTemplates.ContainsKey($id)) {
+        $mgObjectsLookup[$id] = $commonRoleTemplates[$id]
+        Write-Verbose "Resolved role ID $id using static template fallback: $($commonRoleTemplates[$id])"
+      }
+      else {
+        Write-Verbose "Unresolved role id: $id (not found in API or static fallback)"
+      }
+    }
+  }
+}
+
+# Replace role GUIDs with display names in policy conditions
 foreach ($policy in $caPolicy) {
   if (-not $policy.Conditions -or -not $policy.Conditions.Users) { continue }
-  if ($policy.Conditions.Users.IncludeRoles) {
 
+  # Update included roles
+  if ($policy.Conditions.Users.IncludeRoles) {
     for ($i = 0; $i -lt $policy.Conditions.Users.IncludeRoles.Count; $i++) {
       $RoleId = $policy.Conditions.Users.IncludeRoles[$i]
-      if ($mgRoleLookup.ContainsKey($RoleId)) {
-        $policy.Conditions.Users.IncludeRoles[$i] = $mgRoleLookup[$RoleId]
+      if ($mgObjectsLookup.ContainsKey($RoleId)) {
+        $policy.Conditions.Users.IncludeRoles[$i] = $mgObjectsLookup[$RoleId]
       }
     }
   }
-  if ($policy.Conditions.Users.ExcludeRoles) {
 
+  # Update excluded roles
+  if ($policy.Conditions.Users.ExcludeRoles) {
     for ($i = 0; $i -lt $policy.Conditions.Users.ExcludeRoles.Count; $i++) {
       $RoleId = $policy.Conditions.Users.ExcludeRoles[$i]
-      if ($mgRoleLookup.ContainsKey($RoleId)) {
-        $policy.Conditions.Users.ExcludeRoles[$i] = $mgRoleLookup[$RoleId]
+      if ($mgObjectsLookup.ContainsKey($RoleId)) {
+        $policy.Conditions.Users.ExcludeRoles[$i] = $mgObjectsLookup[$RoleId]
       }
     }
   }
 }
 
-# exit
+
+# POLICY DATA EXTRACTION AND TRANSFORMATION
+
+# Initialize array to hold processed policy data
 $CAExport = @()
 
-$AdUsers = @()
-$Apps = @()
-#Extract Values
 Write-Info 'Extracting: CA Policy Data'
+
+# Process each policy and extract key information into structured format
 foreach ( $Policy in $CAPolicy) {
 
+  # Combine all user/group/role assignments for easier viewing
   $IncludeUG = $null
   $IncludeUG = $Policy.Conditions.Users.IncludeUsers
   $IncludeUG += $Policy.Conditions.Users.IncludeGroups
   $IncludeUG += $Policy.Conditions.Users.IncludeRoles
+
+  # Extract creation and modification timestamps
   $DateCreated = $null
   $DateCreated = $Policy.CreatedDateTime
   $DateModified = $null
   $DateModified = $Policy.ModifiedDateTime
 
+  # Combine excluded user/group/role assignments
   $ExcludeUG = $null
   $ExcludeUG = $Policy.Conditions.Users.ExcludeUsers
   $ExcludeUG += $Policy.Conditions.Users.ExcludeGroups
   $ExcludeUG += $Policy.Conditions.Users.ExcludeRoles
 
-
+  # Collect application references (Note: $Apps variable appears unused but preserving for compatibility)
   $Apps += $Policy.Conditions.Applications.IncludeApplications
   $Apps += $Policy.Conditions.Applications.ExcludeApplications
+
+  # Extract location conditions
   $InclLocation = $Null
   $ExclLocation = $Null
   $InclLocation = $Policy.Conditions.Locations.includelocations
   $ExclLocation = $Policy.Conditions.Locations.Excludelocations
+
+  # Extract platform conditions
   $InclPlat = $Null
   $ExclPlat = $Null
   $InclPlat = $Policy.Conditions.Platforms.IncludePlatforms
   $ExclPlat = $Policy.Conditions.Platforms.ExcludePlatforms
+
+  # Extract device conditions
   $InclDev = $null
   $ExclDev = $null
   $InclDev = $Policy.Conditions.Devices.IncludeDevices
@@ -369,35 +665,51 @@ foreach ( $Policy in $CAPolicy) {
   $devFilters = $null
   $devFilters = $Policy.Conditions.Devices.DeviceFilter.Rule
 
+  # Create structured object with all policy information for export
   $CAExport += [PSCustomObject][ordered]@{
+    # Basic policy information
     Name = $Policy.DisplayName
-    Status = $Policy.State
+    Status = Format-PolicyStatus -Status $Policy.State
     Created = $DateCreated
     Modified = $DateModified
+
+    # User and group assignments
     'Included Users' = ($IncludeUG -join ", `r`n")
     'Excluded Users' = ($ExcludeUG -join ", `r`n")
-    'Cloud apps or actions' = ''
+
+    # Application and cloud service conditions
+    'Cloud apps or actions' = ''  # Section header for visual grouping
     'Included Applications' = ($Policy.Conditions.Applications.IncludeApplications -join ", `r`n")
     'Excluded Applications' = ($Policy.Conditions.Applications.ExcludeApplications -join ", `r`n")
     'User Actions' = ($Policy.Conditions.Applications.IncludeUserActions -join ", `r`n")
     'Auth Context' = ($Policy.Conditions.Applications.IncludeAuthenticationContextClassReferences -join ", `r`n")
-    Conditions = ''
+
+    # Risk and condition assessments
+    Conditions = ''  # Section header for visual grouping
     'User Risk' = ($Policy.Conditions.UserRiskLevels -join ", `r`n")
     'Sign In Risk' = ($Policy.Conditions.SignInRiskLevels -join ", `r`n")
-    # Platforms = $Policy.Conditions.Platforms;
+
+    # Platform conditions (iOS, Android, Windows, etc.)
     'Included Platforms ' = ($InclPlat -join ", `r`n")
     'Excluded Platforms ' = ($ExclPlat -join ", `r`n")
-    # Locations = $Policy.Conditions.Locations;
+
+    # Network location conditions
     'Included Locations' = ($InclLocation -join ", `r`n")
     'Excluded Locations' = ($ExclLocation -join ", `r`n")
+
+    # Client application types (modern auth, legacy auth, etc.)
     'Client Apps' = ($Policy.Conditions.ClientAppTypes -join ", `r`n")
-    # Devices = $Policy.Conditions.Devices;
+
+    # Device conditions and filters
     'Included Devices' = ($InclDev -join ", `r`n")
     'Excluded Devices' = ($ExclDev -join ", `r`n")
     'Device Filters' = ($devFilters -join ", `r`n")
-    'Access Controls' = ''
-    'Grant Controls' = ''
-    # Grant = ($Policy.GrantControls.BuiltInControls -join ", `r`n");
+
+    # Access control section headers
+    'Access Controls' = ''  # Section header for visual grouping
+    'Grant Controls' = ''   # Section header for visual grouping
+
+    # Individual grant control requirements (expanded for better visibility)
     Block = if ($Policy.GrantControls.BuiltInControls -contains 'Block') { 'True' } else { '' }
     'Require MFA' = if ($Policy.GrantControls.BuiltInControls -contains 'Mfa') { 'True' } else { '' }
     'Authentication Strength MFA' = $Policy.GrantControls.AuthenticationStrength.DisplayName
@@ -409,8 +721,9 @@ foreach ( $Policy in $CAPolicy) {
     'Terms Of Use' = ($Policy.GrantControls.TermsOfUse -join ", `r`n")
     'Custom Controls' = ($Policy.GrantControls.CustomAuthenticationFactors -join ", `r`n")
     GrantOperator = $Policy.GrantControls.Operator
-    # Session = $Policy.SessionControls
-    'Session Controls' = ''
+
+    # Session control settings
+    'Session Controls' = ''  # Section header for visual grouping
     'Application Enforced Restrictions' = $Policy.SessionControls.ApplicationEnforcedRestrictions.IsEnabled
     'Cloud App Security' = $Policy.SessionControls.CloudAppSecurity.IsEnabled
     'Sign In Frequency' = "$($Policy.SessionControls.SignInFrequency.Value) $($Policy.SessionControls.SignInFrequency.Type)"
@@ -421,10 +734,15 @@ foreach ( $Policy in $CAPolicy) {
   }
 }
 
-#Export Setup
+# DATA TRANSFORMATION FOR EXPORT FORMATS
+
 Write-Info 'Pivoting: CA to Export Format'
+
+# Transform data into pivot table format for better visualization
+# This creates a transposed view where each policy becomes a column and each property becomes a row
 $pivot = @()
-# Header row
+
+# Create header row to establish the column structure
 $rowItem = [PSCustomObject]@{}
 $rowItem | Add-Member -Type NoteProperty -Name 'CA Item' -Value 'row1'
 $pcount = 1
@@ -434,13 +752,13 @@ foreach ($ca in $CAExport) {
 }
 $pivot += $rowItem
 
-# Determine properties from the first policy object
+# Determine all properties from the first policy object for consistent structure
 $properties = @()
 if ($CAExport -and $CAExport.Count -gt 0) {
   $properties = ($CAExport | Select-Object -First 1 | Get-Member -MemberType NoteProperty).Name
 }
 
-# Add property rows
+# Create a row for each property across all policies
 foreach ($prop in $properties) {
   $rowItem = [PSCustomObject]@{}
   $rowItem | Add-Member -Type NoteProperty -Name 'CA Item' -Value $prop
@@ -454,16 +772,19 @@ foreach ($prop in $properties) {
   $pivot += $rowItem
 }
 
-
-#Set Row Order
+# Define custom sort order for logical grouping of policy elements in output
 $sort = 'Name', 'Status', 'Created', 'Modified', 'Included Users', 'Excluded Users', 'Cloud apps or actions', 'Included Applications', 'Excluded Applications', 'User Actions', 'Auth Context', 'Conditions', 'User Risk', 'Sign In Risk', 'Included Platforms ', 'Excluded Platforms ', 'Client Apps', 'Included Locations', 'Excluded Locations', 'Devices', 'Included Devices', 'Excluded Devices', 'Device Filters', 'Access Controls', 'Grant Controls', 'Block', 'Require MFA', 'Authentication Strength MFA', 'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Terms Of Use', 'Custom Controls', 'GrantOperator', 'Session Controls', 'Application Enforced Restrictions', 'Cloud App Security', 'Sign In Frequency', 'Persistent Browser', 'Continuous Access Evaluation', 'Resilient Defaults', 'Secure Sign In Session'
 
+# HTML EXPORT GENERATION
 
 if ($HTMLExport) {
   Write-Info 'Saving to File: HTML'
+
+  # jQuery and JavaScript for interactive table features (row/column selection)
   $jquery = '  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
     $(document).ready(function(){
+        // Row selection functionality
         $("tr").click(function(){
             if(!$(this).hasClass("selected")){
                 $(this).addClass("selected");
@@ -472,6 +793,7 @@ if ($HTMLExport) {
             }
         });
 
+        // Column selection functionality
         $("th").click(function(){
             // Get the index of the clicked column
             var colIndex = $(this).index();
@@ -480,10 +802,13 @@ if ($HTMLExport) {
         });
     });
     </script>'
+
+  # Complete HTML template with Bootstrap styling and custom CSS
   $htmlContent = "<html><head><base href='https://docs.microsoft.com/' target='_blank'>
     <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1, shrink-to-fit=no'>
 
+                  <!-- External CSS and JavaScript libraries -->
                   <link rel='stylesheet' href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.11.2/css/all.min.css' crossorigin='anonymous'>
                   <link rel='stylesheet' href='https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css' integrity='sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T' crossorigin='anonymous'>
                   <script src='https://code.jquery.com/jquery-3.3.1.slim.min.js' integrity='sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo' crossorigin='anonymous'></script>
@@ -491,6 +816,7 @@ if ($HTMLExport) {
                   <script src='https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js' integrity='sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM' crossorigin='anonymous'></script>
                   <script src='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.11.2/js/all.js'></script>
                 $jquery<style>
+                /* Custom CSS styling for the CA export report */
                 .title {
                     font-size: 1.5em;
                     font-weight: bold;
@@ -500,6 +826,7 @@ if ($HTMLExport) {
                     left: 0;
                 }
 
+                /* Table styling for professional appearance */
                 table {
                     border-collapse: collapse;
                     margin-bottom: 30px;
@@ -509,6 +836,7 @@ if ($HTMLExport) {
                     min-width: 400px;
 
                 }
+                  /* Header row styling */
                   thead tr {
                       background-color: #009879;
                       color: #ffffff;
@@ -626,20 +954,41 @@ if ($HTMLExport) {
                 </div>
             </nav> "
 
-
+  # Generate the final HTML report
   Write-Info 'Launching: Web Browser'
   $Launch = Join-Path -Path $ExportLocation -ChildPath $FileName
+
+  # Convert data to HTML table, excluding header row and applying custom sort order
   $table = $pivot | Where-Object { $_.'CA Item' -ne 'row1' } | Sort-Object { $sort.IndexOf($_.'CA Item') } | ConvertTo-Html -Fragment
   $htmlContent = $htmlContent + $table
+
+  # Decode HTML entities and write to file
   Add-Type -AssemblyName System.Web
   [System.Web.HttpUtility]::HtmlDecode($htmlContent) | Out-File $Launch
+
+  # Open the generated HTML report in default browser
   Start-Process $Launch
 }
 
+# CSV EXPORT GENERATION (Optional)
+
 if ($CsvExport) {
-  Write-Info 'Saving to File: CSV (Pivot)'
+  Write-Info 'Saving data to CSV File'
   $LaunchCsv = Join-Path -Path $ExportLocation -ChildPath $CsvFileName
-  $csvData = $pivot | Where-Object { $_.'CA Item' -ne 'row1' } | Sort-Object { $sort.IndexOf($_.'CA Item') }
-  $csvData | Export-Csv -Path $LaunchCsv -NoTypeInformation -Encoding UTF8
+
+  # Export flat/normalized data to CSV format for Excel analysis
+  $CAExport | Export-Csv -Path $LaunchCsv -NoTypeInformation -Encoding UTF8
   Write-Info "CSV exported to: $LaunchCsv"
+}
+
+# CSV PIVOT EXPORT GENERATION (Optional)
+
+if ($CsvPivotExport) {
+  Write-Info 'Saving data to Pivot CSV File'
+  $LaunchCsvPivot = Join-Path -Path $ExportLocation -ChildPath $CsvPivotFileName
+
+  # Export pivot data to CSV format for Excel analysis (transposed format)
+  $csvData = $pivot | Where-Object { $_.'CA Item' -ne 'row1' } | Sort-Object { $sort.IndexOf($_.'CA Item') }
+  $csvData | Export-Csv -Path $LaunchCsvPivot -NoTypeInformation -Encoding UTF8
+  Write-Info "Pivot CSV exported to: $LaunchCsvPivot"
 }
