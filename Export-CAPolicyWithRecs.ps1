@@ -156,6 +156,237 @@ function Format-PolicyStatus {
   }
 }
 
+function Get-RecommendedPolicyName {
+  <#
+  .SYNOPSIS
+    Generates a recommended policy name based on enterprise naming conventions
+  .DESCRIPTION
+    Creates a standardized policy name using the format: [Prefix]-[Scope]-[Condition]-[Control]-[ID]
+    Based on the policy's configuration and intended purpose.
+  .PARAMETER Policy
+    The Conditional Access policy object from Microsoft Graph
+  .OUTPUTS
+    String - Recommended policy name following enterprise naming conventions
+  .EXAMPLE
+    Get-RecommendedPolicyName -Policy $caPolicy
+    Returns: "CA-AllUsers-HighRisk-RequireMFA-001"
+  #>
+  param([Parameter(Mandatory)]$Policy)
+
+  # Prefix - Standard CA prefix
+  $prefix = 'CA'
+
+  # Scope - Determine target user scope
+  $scope = 'Unknown'
+  $users = $Policy.conditions.users
+  if ($users.includeUsers -contains 'All') {
+    if ($users.excludeUsers -and $users.excludeUsers.Count -gt 0) {
+      $scope = 'AllUsers-Exceptions'
+    }
+    else {
+      $scope = 'AllUsers'
+    }
+  }
+  elseif ($users.includeUsers -contains 'GuestsOrExternalUsers') {
+    $scope = 'Guests'
+  }
+  elseif ($users.includeRoles -and $users.includeRoles.Count -gt 0) {
+    # Check for privileged admin roles
+    $adminRoles = @('Global Administrator', 'Privileged Role Administrator', 'Security Administrator', 'Conditional Access Administrator')
+    $hasAdminRole = $false
+    foreach ($roleId in $users.includeRoles) {
+      if ($RoleMap.ContainsKey($roleId) -and $RoleMap[$roleId] -in $adminRoles) {
+        $hasAdminRole = $true
+        break
+      }
+    }
+    $scope = if ($hasAdminRole) { 'PrivAdmins' } else { 'Roles' }
+  }
+  elseif ($users.includeGroups -and $users.includeGroups.Count -gt 0) {
+    $scope = 'Groups'
+  }
+  elseif ($users.includeUsers -and $users.includeUsers.Count -gt 0) {
+    $scope = 'Users'
+  }
+
+  # Condition - Determine primary triggering condition
+  $condition = @()
+  $conditions = $Policy.conditions
+
+  # Risk-based conditions (highest priority)
+  if ($conditions.userRiskLevels -and $conditions.userRiskLevels.Count -gt 0) {
+    if ($conditions.userRiskLevels -contains 'high') {
+      $condition += 'HighUserRisk'
+    }
+    else {
+      $condition += 'UserRisk'
+    }
+  }
+  if ($conditions.signInRiskLevels -and $conditions.signInRiskLevels.Count -gt 0) {
+    if ($conditions.signInRiskLevels -contains 'high') {
+      $condition += 'HighSignInRisk'
+    }
+    else {
+      $condition += 'SignInRisk'
+    }
+  }
+
+  # Location-based conditions
+  if ($conditions.locations.excludeLocations -and $conditions.locations.excludeLocations.Count -gt 0) {
+    $condition += 'UntrustedLocation'
+  }
+  if ($conditions.locations.includeLocations -and $conditions.locations.includeLocations.Count -gt 0) {
+    $condition += 'SpecificLocation'
+  }
+
+  # Client app conditions
+  if ($conditions.clientAppTypes -contains 'exchangeActiveSync' -or
+    $conditions.clientAppTypes -contains 'other') {
+    $condition += 'LegacyAuth'
+  }
+
+  # Authentication flows conditions
+  if ($conditions.authenticationFlows -and $conditions.authenticationFlows.transferMethods -and $conditions.authenticationFlows.transferMethods.Count -gt 0) {
+    $condition += 'AuthFlows'
+  }
+
+  # Platform conditions
+  if ($conditions.platforms.includePlatforms -and $conditions.platforms.includePlatforms.Count -gt 0) {
+    $platforms = $conditions.platforms.includePlatforms
+    if ($platforms -contains 'android' -and $platforms -contains 'iOS') {
+      $condition += 'MobileDevices'
+    }
+    elseif ($platforms.Count -eq 1) {
+      $condition += $platforms[0].Substring(0, 1).ToUpper() + $platforms[0].Substring(1)
+    }
+    else {
+      $condition += 'Platforms'
+    }
+  }
+
+  # Device conditions
+  if ($conditions.devices.includeDevices -and $conditions.devices.includeDevices.Count -gt 0) {
+    if ($conditions.devices.includeDevices -contains 'All') {
+      $condition += 'AllDevices'
+    }
+    else {
+      $condition += 'Devices'
+    }
+  }
+
+  # Device filter conditions
+  if ($conditions.devices.deviceFilter -and $conditions.devices.deviceFilter.rule) {
+    $condition += 'DeviceFilter'
+  }
+
+  # Application conditions
+  if ($conditions.applications.includeApplications -and $conditions.applications.includeApplications.Count -gt 0) {
+    $apps = $conditions.applications.includeApplications
+    if ($apps -contains 'All') {
+      $condition += 'AllApps'
+    }
+    elseif ($apps -contains 'Office365') {
+      $condition += 'Office365'
+    }
+    else {
+      $condition += 'CloudApps'
+    }
+  }
+
+  # Default condition if none detected
+  if ($condition.Count -eq 0) {
+    $condition += 'General'
+  }
+
+  # Control - Determine primary enforcement action
+  $control = 'Unknown'
+  $grantControls = $Policy.grantControls
+  $sessionControls = $Policy.sessionControls
+
+  if ($grantControls.builtInControls -contains 'Block') {
+    $control = 'Block'
+  }
+  elseif ($grantControls.builtInControls -contains 'Mfa') {
+    if ($grantControls.authenticationStrength -and $grantControls.authenticationStrength.displayName) {
+      $control = 'RequireAuthStrength'
+    }
+    elseif ($grantControls.builtInControls.Count -eq 1) {
+      $control = 'RequireMFA'
+    }
+    else {
+      $control = 'RequireMFA-Plus'
+    }
+  }
+  elseif ($grantControls.builtInControls -contains 'CompliantDevice') {
+    $control = 'RequireCompliantDevice'
+  }
+  elseif ($grantControls.builtInControls -contains 'DomainJoinedDevice') {
+    $control = 'RequireDomainJoined'
+  }
+  elseif ($grantControls.builtInControls -contains 'ApprovedApplication') {
+    $control = 'RequireApprovedApp'
+  }
+  elseif ($grantControls.builtInControls -contains 'CompliantApplication') {
+    $control = 'RequireCompliantApp'
+  }
+  elseif ($grantControls.builtInControls -contains 'PasswordChange') {
+    $control = 'RequirePasswordChange'
+  }
+  elseif ($grantControls.termsOfUse -and $grantControls.termsOfUse.Count -gt 0) {
+    $control = 'RequireToU'
+  }
+  else {
+    $control = 'Grant'
+  }
+
+  # Add session control modifiers
+  $sessionModifiers = @()
+  if ($sessionControls.signInFrequency -and $sessionControls.signInFrequency.isEnabled) {
+    $sessionModifiers += 'SignInFreq'
+  }
+  if ($sessionControls.continuousAccessEvaluation -and $sessionControls.continuousAccessEvaluation.mode -eq 'strictEnforcement') {
+    $sessionModifiers += 'CAE'
+  }
+  if ($sessionControls.persistentBrowser -and $sessionControls.persistentBrowser.isEnabled) {
+    $sessionModifiers += 'PersistentBrowser'
+  }
+  if ($sessionControls.applicationEnforcedRestrictions -and $sessionControls.applicationEnforcedRestrictions.isEnabled) {
+    $sessionModifiers += 'AppRestrictions'
+  }
+  if ($sessionControls.cloudAppSecurity -and $sessionControls.cloudAppSecurity.isEnabled) {
+    $sessionModifiers += 'CloudAppSec'
+  }
+
+  # Append session modifiers to control
+  if ($sessionModifiers.Count -gt 0) {
+    $control += '-' + ($sessionModifiers -join '-')
+  }
+
+  # Add status modifier if reporting only
+  if ($Policy.state -eq 'enabledForReportingButNotEnforced') {
+    $control += '-ReportOnly'
+  }
+
+  # ID - Simple incremental ID (could be enhanced with actual policy counting)
+  $id = '001'
+
+  # Combine components - limit condition to first 3 for readability with enhanced naming
+  $conditionStr = ($condition | Select-Object -First 3) -join '-'
+  $recommendedName = "$prefix$id-$scope-$conditionStr-$control"
+
+  # Ensure name doesn't exceed reasonable length (max 100 characters for enhanced naming)
+  if ($recommendedName.Length -gt 100) {
+    # Truncate condition part if too long
+    $maxConditionLength = 100 - $prefix.Length - $id.Length - $scope.Length - $control.Length - 3 # 3 hyphens
+    if ($conditionStr.Length -gt $maxConditionLength -and $maxConditionLength -gt 0) {
+      $conditionStr = $conditionStr.Substring(0, $maxConditionLength)
+    }
+    $recommendedName = "$prefix$id-$scope-$conditionStr-$control"
+  }
+
+  return $recommendedName
+}
+
 function Initialize-GraphModule {
   <#
 .SYNOPSIS
@@ -641,6 +872,7 @@ foreach ($Policy in $CAPolicy) {
 
   $CAExport += [PSCustomObject][ordered]@{
     Name                                = $Policy.displayName
+    'Recommended Name'                  = Get-RecommendedPolicyName -Policy $Policy
     PolicyId                            = $Policy.id
     Status                              = Format-PolicyStatus -Status $Policy.state
     Modified                            = $DateModified
@@ -1209,7 +1441,7 @@ if (-not $NoRecommendations) {
 
 $pivot = @()
 $pivotFields = @(
-  'Status', 'Modified', 'Created', 'Description',
+  'Recommended Name', 'Status', 'Modified', 'Created', 'Description',
   'Included Users', 'Excluded Users', 'RolesIncludeIds', 'RolesExcludeIds',
   'Included Applications', 'Excluded Applications', 'User Actions', 'Auth Context',
   'User Risk', 'SignIn Risk', 'Platforms Include', 'Platforms Exclude', 'Client Apps',
@@ -1580,7 +1812,7 @@ if ($HTMLExport) {
   $HtmlParts += $legendHtml
   # Define columns (reuse CSV default ordering for consistency, but can trim for HTML readability)
   $htmlColumns = @(
-    'Name', 'Status', 'Modified', 'Created', 'Description',
+    'Name', 'Recommended Name', 'Status', 'Modified', 'Created', 'Description',
     'Included Users', 'Excluded Users', 'UsersIncludeIds', 'UsersExcludeIds', 'RolesIncludeIds', 'RolesExcludeIds',
     'Included Applications', 'Excluded Applications', 'ApplicationsIncludedIds', 'ApplicationsExcludedIds',
     'User Actions', 'Auth Context', 'User Risk', 'SignIn Risk', 'Platforms Include', 'Platforms Exclude',
@@ -2052,7 +2284,7 @@ if ($CsvExport) {
   Write-Info 'Saving to File: CSV (one row per policy)'
   $LaunchCsv = Join-Path -Path $ExportLocation -ChildPath $CsvFileName
   $defaultColumns = @(
-    'Name', 'PolicyId', 'Status', 'Modified', 'Created', 'Description',
+    'Name', 'PolicyId', 'Recommended Name', 'Status', 'Modified', 'Created', 'Description',
     'Included Users', 'Excluded Users', 'UsersIncludeIds', 'UsersExcludeIds', 'RolesIncludeIds', 'RolesExcludeIds',
     'Included Applications', 'Excluded Applications', 'ApplicationsIncludedIds', 'ApplicationsExcludedIds',
     'User Actions', 'Auth Context', 'User Risk', 'SignIn Risk', 'Platforms Include', 'Platforms Exclude',

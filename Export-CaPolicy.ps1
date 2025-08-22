@@ -121,6 +121,235 @@ function Format-PolicyStatus {
   }
 }
 
+function Get-RecommendedPolicyName {
+  <#
+  .SYNOPSIS
+    Generates a recommended policy name based on enterprise naming conventions
+  .DESCRIPTION
+    Creates a standardized policy name using the format: [Prefix]-[Scope]-[Condition]-[Control]-[ID]
+    Based on the policy's configuration and intended purpose.
+  .PARAMETER Policy
+    The Conditional Access policy object from Microsoft Graph
+  .OUTPUTS
+    String - Recommended policy name following enterprise naming conventions
+  .EXAMPLE
+    Get-RecommendedPolicyName -Policy $caPolicy
+    Returns: "CA-AllUsers-HighRisk-RequireMFA-001"
+  #>
+  param([Parameter(Mandatory)]$Policy)
+
+  # Prefix - Standard CA prefix
+  $prefix = "CA"
+
+  # Scope - Determine target user scope
+  $scope = "Unknown"
+  $users = $Policy.conditions.users
+  if ($users.includeUsers -contains "All") {
+    if ($users.excludeUsers -and $users.excludeUsers.Count -gt 0) {
+      $scope = "AllUsers-Exceptions"
+    } else {
+      $scope = "AllUsers"
+    }
+  } elseif ($users.includeUsers -contains "GuestsOrExternalUsers") {
+    $scope = "Guests"
+  } elseif ($users.includeRoles -and $users.includeRoles.Count -gt 0) {
+    # Check for privileged admin roles
+    $adminRoles = @('Global Administrator', 'Privileged Role Administrator', 'Security Administrator', 'Conditional Access Administrator')
+    $hasAdminRole = $false
+    foreach ($roleId in $users.includeRoles) {
+      if ($RoleMap.ContainsKey($roleId) -and $RoleMap[$roleId] -in $adminRoles) {
+        $hasAdminRole = $true
+        break
+      }
+    }
+    $scope = if ($hasAdminRole) { "PrivAdmins" } else { "Roles" }
+  } elseif ($users.includeGroups -and $users.includeGroups.Count -gt 0) {
+    $scope = "Groups"
+  } elseif ($users.includeUsers -and $users.includeUsers.Count -gt 0) {
+    $scope = "Users"
+  }
+
+  # Condition - Determine primary triggering condition
+  $condition = @()
+  $conditions = $Policy.conditions
+
+  # Risk-based conditions (highest priority)
+  if ($conditions.userRiskLevels -and $conditions.userRiskLevels.Count -gt 0) {
+    if ($conditions.userRiskLevels -contains "high") {
+      $condition += "HighUserRisk"
+    } else {
+      $condition += "UserRisk"
+    }
+  }
+  if ($conditions.signInRiskLevels -and $conditions.signInRiskLevels.Count -gt 0) {
+    if ($conditions.signInRiskLevels -contains "high") {
+      $condition += "HighSignInRisk"
+    } else {
+      $condition += "SignInRisk"
+    }
+  }
+
+  # Location-based conditions
+  if ($conditions.locations.excludeLocations -and $conditions.locations.excludeLocations.Count -gt 0) {
+    $condition += "UntrustedLocation"
+  }
+  if ($conditions.locations.includeLocations -and $conditions.locations.includeLocations.Count -gt 0) {
+    $condition += "SpecificLocation"
+  }
+
+  # Client app conditions
+  if ($conditions.clientAppTypes -contains "exchangeActiveSync" -or
+      $conditions.clientAppTypes -contains "other") {
+    $condition += "LegacyAuth"
+  }
+
+  # Authentication flows conditions
+  if ($conditions.authenticationFlows -and $conditions.authenticationFlows.transferMethods -and $conditions.authenticationFlows.transferMethods.Count -gt 0) {
+    $condition += "AuthFlows"
+  }
+
+  # Platform conditions
+  if ($conditions.platforms.includePlatforms -and $conditions.platforms.includePlatforms.Count -gt 0) {
+    $platforms = $conditions.platforms.includePlatforms
+    if ($platforms -contains "android" -and $platforms -contains "iOS") {
+      $condition += "MobileDevices"
+    } elseif ($platforms.Count -eq 1) {
+      $condition += $platforms[0].Substring(0,1).ToUpper() + $platforms[0].Substring(1)
+    } else {
+      $condition += "Platforms"
+    }
+  }
+
+  # Device conditions
+  if ($conditions.devices.includeDevices -and $conditions.devices.includeDevices.Count -gt 0) {
+    if ($conditions.devices.includeDevices -contains "All") {
+      $condition += "AllDevices"
+    } else {
+      $condition += "Devices"
+    }
+  }
+
+  # Device filter conditions
+  if ($conditions.devices.deviceFilter -and $conditions.devices.deviceFilter.rule) {
+    $condition += "DeviceFilter"
+  }
+
+  # Application conditions
+  if ($conditions.applications.includeApplications -and $conditions.applications.includeApplications.Count -gt 0) {
+    $apps = $conditions.applications.includeApplications
+    if ($apps -contains "All") {
+      $condition += "AllApps"
+    } elseif ($apps -contains "Office365") {
+      $condition += "Office365"
+    } else {
+      $condition += "CloudApps"
+    }
+  }
+
+  # Default condition if none detected
+  if ($condition.Count -eq 0) {
+    $condition += "General"
+  }
+
+  # Control - Determine primary enforcement action
+  $control = "Unknown"
+  $grantControls = $Policy.grantControls
+  $sessionControls = $Policy.sessionControls
+
+  if ($grantControls.builtInControls -contains "Block") {
+    $control = "Block"
+  } elseif ($grantControls.builtInControls -contains "Mfa") {
+    if ($grantControls.authenticationStrength -and $grantControls.authenticationStrength.displayName) {
+      $control = "RequireAuthStrength"
+    } elseif ($grantControls.builtInControls.Count -eq 1) {
+      $control = "RequireMFA"
+    } else {
+      $control = "RequireMFA-Plus"
+    }
+  } elseif ($grantControls.builtInControls -contains "CompliantDevice") {
+    $control = "RequireCompliantDevice"
+  } elseif ($grantControls.builtInControls -contains "DomainJoinedDevice") {
+    $control = "RequireDomainJoined"
+  } elseif ($grantControls.builtInControls -contains "ApprovedApplication") {
+    $control = "RequireApprovedApp"
+  } elseif ($grantControls.builtInControls -contains "CompliantApplication") {
+    $control = "RequireCompliantApp"
+  } elseif ($grantControls.builtInControls -contains "PasswordChange") {
+    $control = "RequirePasswordChange"
+  } elseif ($grantControls.termsOfUse -and $grantControls.termsOfUse.Count -gt 0) {
+    $control = "RequireToU"
+  } else {
+    $control = "Grant"
+  }
+
+  # Add session control modifiers
+  $sessionModifiers = @()
+  if ($sessionControls.signInFrequency -and $sessionControls.signInFrequency.isEnabled) {
+    $sessionModifiers += "SignInFreq"
+  }
+  if ($sessionControls.continuousAccessEvaluation -and $sessionControls.continuousAccessEvaluation.mode -eq "strictEnforcement") {
+    $sessionModifiers += "CAE"
+  }
+  if ($sessionControls.persistentBrowser -and $sessionControls.persistentBrowser.isEnabled) {
+    $sessionModifiers += "PersistentBrowser"
+  }
+  if ($sessionControls.applicationEnforcedRestrictions -and $sessionControls.applicationEnforcedRestrictions.isEnabled) {
+    $sessionModifiers += "AppRestrictions"
+  }
+  if ($sessionControls.cloudAppSecurity -and $sessionControls.cloudAppSecurity.isEnabled) {
+    $sessionModifiers += "CloudAppSec"
+  }
+
+  # Append session modifiers to control
+  if ($sessionModifiers.Count -gt 0) {
+    $control += "-" + ($sessionModifiers -join "-")
+  }
+
+  # Add status modifier if reporting only
+  if ($Policy.state -eq "enabledForReportingButNotEnforced") {
+    $control += "-ReportOnly"
+  }
+
+  # ID - Simple incremental ID (could be enhanced with actual policy counting)
+  $id = "001"
+
+  # Combine components - limit condition to first 3 for readability with enhanced naming
+  $conditionStr = ($condition | Select-Object -First 3) -join "-"
+  $recommendedName = "$prefix$id-$scope-$conditionStr-$control"
+
+  # Ensure name doesn't exceed reasonable length (max 100 characters for enhanced naming)
+  if ($recommendedName.Length -gt 100) {
+    # Truncate condition part if too long
+    $maxConditionLength = 100 - $prefix.Length - $id.Length - $scope.Length - $control.Length - 3 # 3 hyphens
+    if ($conditionStr.Length -gt $maxConditionLength -and $maxConditionLength -gt 0) {
+      $conditionStr = $conditionStr.Substring(0, $maxConditionLength)
+    }
+    $recommendedName = "$prefix$id-$scope-$conditionStr-$control"
+  }
+
+  return $recommendedName
+}
+
+function Convert-IdListToName {
+  <#
+  .SYNOPSIS
+    Convert a list of IDs to their friendly names when present in a lookup map
+  .DESCRIPTION
+    For each element in List, if the Map contains that key the mapped value is output; otherwise the original value.
+    Null / empty input yields an empty array.
+  .PARAMETER List
+    Collection of IDs or values
+  .PARAMETER Map
+    Hashtable keyed by ID with friendly values
+  .EXAMPLE
+    Convert-IdListToName -List $policy.conditions.users.includeUsers -Map $UserMap
+  #>
+  [CmdletBinding()]
+  param([string[]]$List, [hashtable]$Map)
+  if (-not $List) { return @() }
+  return $List | ForEach-Object { if ($Map.ContainsKey($_)) { $Map[$_] } else { $_ } }
+}
+
 function Test-ModuleInstalled {
   <#
   .SYNOPSIS
@@ -170,8 +399,7 @@ function Initialize-GraphModule {
     [string[]]$RequiredModules = @(
       'Microsoft.Graph.Authentication',
       'Microsoft.Graph.Identity.DirectoryManagement',
-      'Microsoft.Graph.Identity.SignIns',
-      'Microsoft.Graph.DeviceManagement.Enrolment'
+      'Microsoft.Graph.Identity.SignIns'
     )
   )
 
@@ -380,16 +608,27 @@ foreach ($p in $CAPolicy) {
 # Build unified lookup hashtable for all entities
 $mgObjectsLookup = @{}
 
+# Create separate lookup maps for different entity types
+$UserMap = @{}
+$GroupMap = @{}
+$RoleMap = @{}
+
 # Resolve Users - Convert user GUIDs to display names
 foreach ($id in $userIds) {
   $obj = Invoke-SafeGet { Get-MgUser -UserId $id -Property Id, DisplayName }
-  if ($obj) { $mgObjectsLookup[$id] = $obj.DisplayName }
+  if ($obj) {
+    $mgObjectsLookup[$id] = $obj.DisplayName
+    $UserMap[$id] = $obj.DisplayName
+  }
 }
 
 # Resolve Groups - Convert group GUIDs to display names
 foreach ($id in $groupIds) {
   $obj = Invoke-SafeGet { Get-MgGroup -GroupId $id -Property Id, DisplayName }
-  if ($obj) { $mgObjectsLookup[$id] = $obj.DisplayName }
+  if ($obj) {
+    $mgObjectsLookup[$id] = $obj.DisplayName
+    $GroupMap[$id] = $obj.DisplayName
+  }
 }
 
 # ================================================================================================
@@ -565,17 +804,20 @@ else {
 foreach ($id in $roleIds) {
   if ($roleLookup.ContainsKey($id)) {
     $mgObjectsLookup[$id] = $roleLookup[$id]
+    $RoleMap[$id] = $roleLookup[$id]
   }
   else {
     # Fallback attempt for roles that might have just become active or API lookup failed
     $obj = Invoke-SafeGet { Get-MgDirectoryRole -DirectoryRoleId $id -Property Id, DisplayName }
     if ($obj) {
       $mgObjectsLookup[$id] = $obj.DisplayName
+      $RoleMap[$id] = $obj.DisplayName
     }
     else {
       # Check if this ID matches a known template ID from our static fallback
       if ($commonRoleTemplates.ContainsKey($id)) {
         $mgObjectsLookup[$id] = $commonRoleTemplates[$id]
+        $RoleMap[$id] = $commonRoleTemplates[$id]
         Write-Verbose "Resolved role ID $id using static template fallback: $($commonRoleTemplates[$id])"
       }
       else {
@@ -622,10 +864,10 @@ Write-Info 'Extracting: CA Policy Data'
 foreach ( $Policy in $CAPolicy) {
 
   # Combine all user/group/role assignments for easier viewing
-  $IncludeUG = $null
-  $IncludeUG = $Policy.Conditions.Users.IncludeUsers
-  $IncludeUG += $Policy.Conditions.Users.IncludeGroups
-  $IncludeUG += $Policy.Conditions.Users.IncludeRoles
+  $IncludeUG = @()
+  $IncludeUG += (Convert-IdListToName $Policy.Conditions.Users.IncludeUsers $UserMap)
+  $IncludeUG += (Convert-IdListToName $Policy.Conditions.Users.IncludeGroups $GroupMap)
+  $IncludeUG += (Convert-IdListToName $Policy.Conditions.Users.IncludeRoles $RoleMap)
 
   # Extract creation and modification timestamps
   $DateCreated = $null
@@ -634,10 +876,10 @@ foreach ( $Policy in $CAPolicy) {
   $DateModified = $Policy.ModifiedDateTime
 
   # Combine excluded user/group/role assignments
-  $ExcludeUG = $null
-  $ExcludeUG = $Policy.Conditions.Users.ExcludeUsers
-  $ExcludeUG += $Policy.Conditions.Users.ExcludeGroups
-  $ExcludeUG += $Policy.Conditions.Users.ExcludeRoles
+  $ExcludeUG = @()
+  $ExcludeUG += (Convert-IdListToName $Policy.Conditions.Users.ExcludeUsers $UserMap)
+  $ExcludeUG += (Convert-IdListToName $Policy.Conditions.Users.ExcludeGroups $GroupMap)
+  $ExcludeUG += (Convert-IdListToName $Policy.Conditions.Users.ExcludeRoles $RoleMap)
 
   # Collect application references (Note: $Apps variable appears unused but preserving for compatibility)
   $Apps += $Policy.Conditions.Applications.IncludeApplications
@@ -668,6 +910,7 @@ foreach ( $Policy in $CAPolicy) {
     # Basic policy information
     Name = $Policy.DisplayName
     Status = Format-PolicyStatus -Status $Policy.State
+    'Recommended Name' = Get-RecommendedPolicyName -Policy $Policy
     Created = $DateCreated
     Modified = $DateModified
 
@@ -771,7 +1014,7 @@ foreach ($prop in $properties) {
 }
 
 # Define custom sort order for logical grouping of policy elements in output
-$sort = 'Name', 'Status', 'Created', 'Modified', 'Included Users', 'Excluded Users', 'Cloud apps or actions', 'Included Applications', 'Excluded Applications', 'User Actions', 'Auth Context', 'Conditions', 'User Risk', 'Sign In Risk', 'Included Platforms ', 'Excluded Platforms ', 'Client Apps', 'Included Locations', 'Excluded Locations', 'Devices', 'Included Devices', 'Excluded Devices', 'Device Filters', 'Access Controls', 'Grant Controls', 'Block', 'Require MFA', 'Authentication Strength MFA', 'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Terms Of Use', 'Custom Controls', 'GrantOperator', 'Session Controls', 'Application Enforced Restrictions', 'Cloud App Security', 'Sign In Frequency', 'Persistent Browser', 'Continuous Access Evaluation', 'Resilient Defaults', 'Secure Sign In Session'
+$sort = 'Name', 'Recommended Name', 'Status', 'Created', 'Modified', 'Included Users', 'Excluded Users', 'Cloud apps or actions', 'Included Applications', 'Excluded Applications', 'User Actions', 'Auth Context', 'Conditions', 'User Risk', 'Sign In Risk', 'Included Platforms ', 'Excluded Platforms ', 'Client Apps', 'Included Locations', 'Excluded Locations', 'Devices', 'Included Devices', 'Excluded Devices', 'Device Filters', 'Access Controls', 'Grant Controls', 'Block', 'Require MFA', 'Authentication Strength MFA', 'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Terms Of Use', 'Custom Controls', 'GrantOperator', 'Session Controls', 'Application Enforced Restrictions', 'Cloud App Security', 'Sign In Frequency', 'Persistent Browser', 'Continuous Access Evaluation', 'Resilient Defaults', 'Secure Sign In Session'
 
 # HTML EXPORT GENERATION
 
