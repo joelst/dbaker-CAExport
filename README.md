@@ -1,4 +1,4 @@
- # CA-Export
+ # Export Conditionsl Access Policies PowerShell scripts
 
 Export and analyze Microsoft Entra ID (Azure AD) Conditional Access (CA) policies for documentation, security review, and remediation planning.
 
@@ -38,7 +38,7 @@ Screenshots:
 ---
 ## Installation / Prereqs
 
-PowerShell 7+ recommended. Ensure Microsoft Graph modules are installed. You can install all of the modules using:
+PowerShell 7.5 + is recommended. Ensure Microsoft Graph modules are installed. You can install all of the modules using:
 
 ```powershell
 Install-Module Microsoft.Graph -Scope CurrentUser
@@ -52,7 +52,9 @@ Install-Module Microsoft.Graph.Identity.DirectoryManagement -Scope CurrentUser
 Install-Module Microsoft.Graph.Identity.SignIns -Scope CurrentUser
 ```
 
-When the script runs it will request admin consent to allow it to use Microsoft Graph, if this not already granted. If you do not have permission to grant admin consent, you will need to work with your Entra ID administrator to obtain the necessary permissions.
+When the script runs it will request admin consent to allow it to use the Microsoft Graph command line tools, if this not already granted. If you do not have permission to grant admin consent, you will need to work with your Entra ID administrator to obtain the necessary permissions.
+
+![Requesting Admin Consent for Graph Command Line Tools ](./images/MicrosoftGraphConsent.png)
 
 ---
 ## Quick Start

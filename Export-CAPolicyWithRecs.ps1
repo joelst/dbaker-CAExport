@@ -446,7 +446,7 @@ function Initialize-GraphModule {
     if (-not $installed) {
       Write-Info ('Installing module: {0} (CurrentUser)' -f $m)
       try {
-        Install-Module -Name $m -Scope CurrentUser -AllowClobber -Force -ErrorAction Stop
+        Install-Module -Name $m -Scope CurrentUser -AllowClobber -Force -ErrorAction Stop -SkipPublisherCheck
       }
       catch {
         Write-Warn ("Failed to install module '{0}': {1}" -f $m, $_.Exception.Message)
@@ -741,7 +741,13 @@ foreach ($p in $CAPolicy) {
 # ---------------- Build lookup maps (best-effort) ----------------
 $UserMap = @{}; $GroupMap = @{}; $RoleMap = @{}; $AppMap = @{}; $LocMap = @{}; $TouMap = @{}
 
-foreach ($id in $userIds) { $obj = Invoke-SafeGet { Get-MgUser -UserId $id -Property Id, DisplayName } ; if ($obj) { $UserMap[$id] = $obj.DisplayName } }
+foreach ($id in $userIds) {
+  # Only resolve if $id is a valid GUID (skip sentinel values)
+  if ($id -and ($id -match '^[0-9a-fA-F\-]{36}$')) {
+    $obj = Invoke-SafeGet { Get-MgUser -UserId $id -Property Id, DisplayName }
+    if ($obj) { $UserMap[$id] = $obj.DisplayName }
+  }
+}
 foreach ($id in $groupIds) { $obj = Invoke-SafeGet { Get-MgGroup -GroupId $id -Property Id, DisplayName } ; if ($obj) { $GroupMap[$id] = $obj.DisplayName } }
 
 $roleLookup = @{}
