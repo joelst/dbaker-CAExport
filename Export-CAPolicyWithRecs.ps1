@@ -837,10 +837,9 @@ function Test-CA06 { param($PolicyCheck)
 }
 function Test-CA07 { param($PolicyCheck)
   (($null -eq $PolicyCheck.Conditions.Users.IncludeUsers) -or $PolicyCheck.Conditions.Users.IncludeUsers.Count -eq 0 -or $PolicyCheck.Conditions.Users.IncludeUsers -eq 'None') -and
-  (($null -eq $PolicyCheck.Conditions.Users.IncludeGroups) -or $PolicyCheck.Conditions.Users.IncludeGroups.Count -eq 0 -or
-   ($PolicyCheck.Conditions.Users.IncludeGroups | ForEach-Object { $_ -match '\((\d+)\)' -and [int]$matches[1] -eq 0 })) -and
+  (($null -eq $PolicyCheck.Conditions.Users.IncludeGroups) -or $PolicyCheck.Conditions.Users.IncludeGroups.Count -eq 0 -or ($PolicyCheck.Conditions.Users.IncludeGroups | ForEach-Object { $_ -match '\((\d+)\)' -and [int]$matches[1] -eq 0 })) -and
   (($null -eq $PolicyCheck.Conditions.Users.IncludeRoles) -or $PolicyCheck.Conditions.Users.IncludeRoles.Count -eq 0) -and
-  ($null -eq $PolicyCheck.conditions.users.IncludeGuestsOrExternalUsers.GuestOrExternalUserTypes)
+  ($null -eq $PolicyCheck.Conditions.Users.IncludeGuestsOrExternalUsers.GuestOrExternalUserTypes)
 }
 function Test-CA08 { param($PolicyCheck)
   $PolicyCheck.Conditions.Users.IncludeUsers -ne 'None' -and
@@ -1123,7 +1122,6 @@ if ($script:OfflineMode) {
     }
   }
 }
-
 
 # ---------------- Construct CAExport ----------------
 $CAExport = @()
@@ -1440,10 +1438,10 @@ if (-not $NoRecommendations) {
     [recommendation]::new('CA-03','Require Hybrid Join or Intune Compliance on Windows or Mac','There is at least one policy that requires Hybrid Join or Intune Compliance for Windows or Mac devices.','Consider adding policies to ensure that Windows or Mac devices are either Hybrid Joined or compliant with Intune to enhance security.','Hybrid Join or Intune Compliance should be enforced to ensure that Windows or Mac devices accessing organizational data are properly managed and secure. Policies should include requirements for Hybrid Join or Intune Compliance to increase security for these devices.',@{ 'Hybrid Join Overview'='https://learn.microsoft.com/en-us/azure/active-directory/devices/hybrid-azuread-join-plan'; 'Intune Compliance Overview'='https://learn.microsoft.com/en-us/mem/intune/protect/compliance-policy-create-windows' },$false,$true),
     [recommendation]::new('CA-04','Require MFA for Admins','There is at least one policy that requires Multi-Factor Authentication (MFA) for administrators.','Consider adding policies to ensure that administrators are required to use Multi-Factor Authentication (MFA) to enhance security.','Multi-Factor Authentication (MFA) should be enforced for administrators to ensure that access to critical systems and data is secure. Policies should include requirements for MFA to increase security for administrative accounts.',@{ 'MFA Overview'='https://learn.microsoft.com/en-us/azure/active-directory/authentication/concept-mfa-howitworks'; 'MFA for Admins'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-old-require-mfa-admin' },$false,$true),
     [recommendation]::new('CA-05','Require Phish-Resistant MFA for Admins','There is at least one policy that requires phish-resistant Multi-Factor Authentication (MFA) for administrators.','Consider adding policies to ensure that administrators are required to use phish-resistant Multi-Factor Authentication (MFA) to enhance security.','Phish-resistant Multi-Factor Authentication (MFA) should be enforced for administrators to ensure secure access.',@{ 'MSFT Authentication Strengths'='https://learn.microsoft.com/en-us/entra/identity/authentication/concept-authentication-strengths'; 'Phish-Resistant MFA for Admins'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-admin-phish-resistant-mfa' },$false,$true),
-    [recommendation]::new('CA-06','Policy Excludes Same Entities It Includes','There is at least one policy that excludes the same entities it includes, resulting in no effective condition being checked.','Review and update policies to ensure that they do not exclude the same entities they include.','Policies should include and exclude distinct sets of entities to ensure conditions are effectively checked.',@{ 'Policy Configuration Best Practices'='https://learn.microsoft.com/en-us/azure/active-directory/conditional-access/best-practices' },$true,$false),
+    [recommendation]::new('CA-06','Policy Excludes Entities It Includes','There is at least one policy that excludes the same entities it includes, resulting in no effective condition being checked.','Review and update policies to ensure that they do not exclude the same entities they include.','Policies should include and exclude distinct sets of entities to ensure conditions are effectively checked.',@{ 'Policy Configuration Best Practices'='https://learn.microsoft.com/en-us/azure/active-directory/conditional-access/best-practices' },$true,$false),
     [recommendation]::new('CA-07','No Users Targeted in Policy','There is at least one policy that does not target any users.','Review and update policies to ensure that they target specific users, groups, or roles to be effective.','Policies should target specific users, groups, or roles to ensure they apply correctly.',@{ 'Policy Configuration Best Practices'='https://learn.microsoft.com/en-us/azure/active-directory/conditional-access/best-practices' },$true,$false),
     [recommendation]::new('CA-08','Direct User Assignment','There are no direct user assignments in the policy.','Review and update policies to avoid direct user assignments; prefer groups.','Direct user assignments reduce scalability; use exclusion/target groups instead.',@{},$true,$false),
-    [recommendation]::new('CA-09','Implement Risk-Based Policy','There is at least 1 policy that addresses risk-based conditional access.','Consider implementing risk-based conditional access policies for dynamic controls.','Risk-based policies assess risk of sign-ins/users and apply appropriate controls.',@{ 'Risk-Based Conditional Access Overview'='https://learn.microsoft.com/en-us/entra/id-protection/howto-identity-protection-configure-risk-policies'; 'Require MFA for Risky Sign-in'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-risk-based-sign-in#enable-with-conditional-access-policy'; 'Require Passsword Change for Risky USer'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-risk-based-user#enable-with-conditional-access-policy' },$false,$true),
+    [recommendation]::new('CA-09','Implement Risk-Based Policy','There is at least 1 policy that addresses risk-based conditional access.','Consider implementing risk-based conditional access policies for dynamic controls.','Risk-based policies assess risk of sign-ins/users and apply appropriate controls.',@{ 'Risk-Based Conditional Access Overview'='https://learn.microsoft.com/en-us/entra/id-protection/howto-identity-protection-configure-risk-policies'; 'Require MFA for Risky Sign-in'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-risk-based-sign-in#enable-with-conditional-access-policy'; 'Require Passsword Change for Risky User'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-risk-based-user#enable-with-conditional-access-policy' },$false,$true),
     [recommendation]::new('CA-10','Block Device Code Flow','There is at least 1 policy that blocks device code flow.','Consider implementing a policy to block device code flow.','Blocking device code flow prevents potential abuse of device code auth.',@{ 'Block Device Code Flow Overview'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-authentication-flows#device-code-flow' },$false,$true),
     [recommendation]::new('CA-11','Require MFA to Enroll a Device in Intune','There is at least 1 policy that requires Multi-Factor Authentication (MFA) to enroll a device in Intune.','Consider implementing a policy to require MFA for Intune enrollment.','MFA for enrollment ensures only authorized users can enroll devices.',@{ 'MFA for Intune Enrollment Overview'='https://learn.microsoft.com/en-us/mem/intune/enrollment/multi-factor-authentication' },$false,$true),
     [recommendation]::new('CA-12','Block Unknown/Unsupported Devices','There is no policy that blocks unknown or unsupported devices.','Implement a policy to block unknown or unsupported devices.','Blocking unknown or unsupported devices prevents access from non-compliant endpoints.',@{ 'Block Unknown/Unsupported Devices Overview'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-all-users-device-unknown-unsupported' },$false,$true)
@@ -1759,8 +1757,32 @@ if ($HTMLExport) {
   .sticky-name { position:sticky; inset-inline-start:0; background:#005494; color:#fff; z-index:5; font-weight:700; text-align:left; box-shadow:4px 0 6px -4px rgba(0,0,0,.35); }
   .sticky-name.colselected { outline:none; }
   /* Sticky header (below navbar ~55px high) */
-  .sticky-header thead th { position:sticky; top:55px; z-index:6; background:linear-gradient(90deg,#005494,#0a79c5); }
+  .sticky-header thead th { position:sticky; top:55px; z-index:6; }
   .sticky-header thead th.sticky-name { z-index:7; }
+  /* Grouped header color palette */
+  .sticky-header thead tr.group-header th.group-span { font-size:0.65rem; letter-spacing:.4px; text-transform:uppercase; color:#fff; border-bottom:2px solid #fff; }
+  .sticky-header thead tr.column-header-row th { font-size:0.60rem; }
+  .group-general { background:#204b73; }
+  .group-assign-users { background:#0d5c63; }
+  .group-assign-target { background:#5a3d7a; }
+  .group-network { background:#7a4b2d; }
+  .group-conditions { background:#2d6e5a; }
+  .group-grant { background:#735e0d; }
+  .group-session { background:#5a1f3d; }
+  .group-output { background:#444c57; }
+  /* Match second row colors by inheriting group classes */
+  .column-header-row th.group-general { background:#295e91; }
+  .column-header-row th.group-assign-users { background:#117279; }
+  .column-header-row th.group-assign-target { background:#6c4993; }
+  .column-header-row th.group-network { background:#945c39; }
+  .column-header-row th.group-conditions { background:#378a70; }
+  .column-header-row th.group-grant { background:#8e7412; }
+  .column-header-row th.group-session { background:#722648; }
+  .column-header-row th.group-output { background:#556170; }
+  .group-header th { position:sticky; top:55px; z-index:8; }
+  .column-header-row th { position:sticky; top:86px; z-index:7; }
+  /* Adjust sticky first column under new two-row header stack */
+  .sticky-header thead th.sticky-name { top:86px; }
   .sticky-name a { color:#fff; }
   .sticky-name .policy-name { color:#fff; }
   .sticky-name .policy-link { display:inline-flex; align-items:center; justify-content:center; margin-left:4px; text-decoration:none; width:20px; height:20px; border-radius:4px; background:rgba(255,255,255,0.12); transition:background .18s ease, transform .18s ease; }
@@ -2064,17 +2086,44 @@ if ($HTMLExport) {
   $table += '<table class="sticky-header">'
   # Specify boolean columns for icon rendering
   $boolColumns = @('Block', 'Require MFA', 'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Application Enforced Restrictions', 'Cloud App Security', 'Resilient Defaults')
-  $header = '<thead><tr>' + ($htmlColumns | ForEach-Object {
+  # Build multi-row header: first row (spanning categories) + second row (individual columns)
+  $groupDefinitions = @(
+    @{ Name = 'General'; Class='group-general;'; Columns = @('Name','Recommended Name','Status','Modified','Created','Description') },
+    @{ Name = 'Assignments - Users'; Class='group-assign-users;'; Columns = @('Included Users','Excluded Users') },
+    @{ Name = 'Assignments - Target Resources'; Class='group-assign-target'; Columns = @('Included Applications','Excluded Applications','User Actions','Auth Context','User Risk','SignIn Risk','Platforms Include','Platforms Exclude') },
+    @{ Name = 'Assignments - Network'; Class='group-network'; Columns = @('Locations Included','Locations Excluded') },
+    @{ Name = 'Assignments - Conditions'; Class='group-conditions'; Columns = @('Client Apps','Devices Included','Devices Excluded','Device Filters','Authentication Flows') },
+    @{ Name = 'Access controls - Grant'; Class='group-grant'; Columns = @('Block','Require MFA','Authentication Strength MFA','Compliant Device','Domain Joined Device','Compliant Application','Approved Application','Password Change','Terms Of Use','Custom Controls','Grant Operator') },
+    @{ Name = 'Access controls - Session'; Class='group-session'; Columns = @('Application Enforced Restrictions','Cloud App Security','Sign In Frequency','Persistent Browser','Continuous Access Evaluation','Resilient Defaults','Secure Sign In Session') },
+    @{ Name = 'Output'; Class='group-output'; Columns = @('RawJson','Duplicate Matches') }
+  )
+  # Sanity: ensure ordering in htmlColumns matches group concatenation; if mismatch, groups may mis-align
+  # Compose group header row
+  $groupRow = '<tr class="group-header">' + (
+    $groupDefinitions | ForEach-Object {
+      $colspan = $_.Columns.Count
+      $gName = [System.Web.HttpUtility]::HtmlEncode($_.Name)
+      $gClass = $_.Class
+      "<th class='group-span $gClass' colspan='$colspan'>$gName</th>"
+    }
+  ) -join '' + '</tr>'
+  # Map column -> group class
+  $columnGroupClassMap = @{}
+  foreach ($gd in $groupDefinitions) { foreach ($col in $gd.Columns) { $columnGroupClassMap[$col] = $gd.Class } }
+  # Compose second (field) header row with group color classes
+  $fieldHeaderRow = '<tr class="column-header-row">' + ($htmlColumns | ForEach-Object {
+      $gCls = $columnGroupClassMap[$_]
       if ($_ -eq 'Name') {
-        '<th id="th-name" class="sticky-name name-col">Name</th>' 
+        "<th id='th-name' class='sticky-name name-col $gCls'>Name</th>" 
       } elseif ($_ -eq 'Status') {
-        '<th>Status</th>' 
+        "<th class='$gCls'>Status</th>" 
       } elseif ($boolColumns -contains $_) {
-        "<th class='bool-col'>$_</th>" 
+        "<th class='bool-col $gCls'>$_</th>" 
       } else {
-        "<th>$_</th>" 
+        "<th class='$gCls'>$_</th>" 
       }
-    }) -join '' + '</tr></thead>'
+    }) -join '' + '</tr>'
+  $header = '<thead>' + $groupRow + $fieldHeaderRow + '</thead>'
   $table += $header
   $table += '<tbody>'
   foreach ($p in $CAExport) {
