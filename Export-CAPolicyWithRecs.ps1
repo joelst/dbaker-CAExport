@@ -1438,8 +1438,8 @@ if (-not $NoRecommendations) {
     [recommendation]::new('CA-03','Require Hybrid Join or Intune Compliance on Windows or Mac','There is at least one policy that requires Hybrid Join or Intune Compliance for Windows or Mac devices.','Consider adding policies to ensure that Windows or Mac devices are either Hybrid Joined or compliant with Intune to enhance security.','Hybrid Join or Intune Compliance should be enforced to ensure that Windows or Mac devices accessing organizational data are properly managed and secure. Policies should include requirements for Hybrid Join or Intune Compliance to increase security for these devices.',@{ 'Hybrid Join Overview'='https://learn.microsoft.com/en-us/azure/active-directory/devices/hybrid-azuread-join-plan'; 'Intune Compliance Overview'='https://learn.microsoft.com/en-us/mem/intune/protect/compliance-policy-create-windows' },$false,$true),
     [recommendation]::new('CA-04','Require MFA for Admins','There is at least one policy that requires Multi-Factor Authentication (MFA) for administrators.','Consider adding policies to ensure that administrators are required to use Multi-Factor Authentication (MFA) to enhance security.','Multi-Factor Authentication (MFA) should be enforced for administrators to ensure that access to critical systems and data is secure. Policies should include requirements for MFA to increase security for administrative accounts.',@{ 'MFA Overview'='https://learn.microsoft.com/en-us/azure/active-directory/authentication/concept-mfa-howitworks'; 'MFA for Admins'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-old-require-mfa-admin' },$false,$true),
     [recommendation]::new('CA-05','Require Phish-Resistant MFA for Admins','There is at least one policy that requires phish-resistant Multi-Factor Authentication (MFA) for administrators.','Consider adding policies to ensure that administrators are required to use phish-resistant Multi-Factor Authentication (MFA) to enhance security.','Phish-resistant Multi-Factor Authentication (MFA) should be enforced for administrators to ensure secure access.',@{ 'MSFT Authentication Strengths'='https://learn.microsoft.com/en-us/entra/identity/authentication/concept-authentication-strengths'; 'Phish-Resistant MFA for Admins'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-admin-phish-resistant-mfa' },$false,$true),
-    [recommendation]::new('CA-06','Policy Excludes Entities It Includes','There is at least one policy that excludes the same entities it includes, resulting in no effective condition being checked.','Review and update policies to ensure that they do not exclude the same entities they include.','Policies should include and exclude distinct sets of entities to ensure conditions are effectively checked.',@{ 'Policy Configuration Best Practices'='https://learn.microsoft.com/en-us/azure/active-directory/conditional-access/best-practices' },$true,$false),
-    [recommendation]::new('CA-07','No Users Targeted in Policy','There is at least one policy that does not target any users.','Review and update policies to ensure that they target specific users, groups, or roles to be effective.','Policies should target specific users, groups, or roles to ensure they apply correctly.',@{ 'Policy Configuration Best Practices'='https://learn.microsoft.com/en-us/azure/active-directory/conditional-access/best-practices' },$true,$false),
+    [recommendation]::new('CA-06','Policy Excludes Entities That Are Also Included','There is at least one policy that excludes the same entities it includes, resulting in no effective condition being checked.','Review and update policies to ensure that they do not exclude the same entities they include.','Policies should include and exclude distinct sets of entities to ensure conditions are effectively checked.',@{ 'Policy Configuration Best Practices'='https://learn.microsoft.com/en-us/azure/active-directory/conditional-access/best-practices' },$true,$false),
+    [recommendation]::new('CA-07','No Users Targeted in Policy','All policies are scoped to users, groups, or roles.','There is at least one policy that does not target any users. Review and update policies to ensure that they target specific users, groups, or roles to be effective.','Policies should target specific users, groups, or roles to ensure they apply correctly.',@{ 'Policy Configuration Best Practices'='https://learn.microsoft.com/en-us/azure/active-directory/conditional-access/best-practices' },$true,$false),
     [recommendation]::new('CA-08','Direct User Assignment','There are no direct user assignments in the policy.','Review and update policies to avoid direct user assignments; prefer groups.','Direct user assignments reduce scalability; use exclusion/target groups instead.',@{},$true,$false),
     [recommendation]::new('CA-09','Implement Risk-Based Policy','There is at least 1 policy that addresses risk-based conditional access.','Consider implementing risk-based conditional access policies for dynamic controls.','Risk-based policies assess risk of sign-ins/users and apply appropriate controls.',@{ 'Risk-Based Conditional Access Overview'='https://learn.microsoft.com/en-us/entra/id-protection/howto-identity-protection-configure-risk-policies'; 'Require MFA for Risky Sign-in'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-risk-based-sign-in#enable-with-conditional-access-policy'; 'Require Passsword Change for Risky User'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-risk-based-user#enable-with-conditional-access-policy' },$false,$true),
     [recommendation]::new('CA-10','Block Device Code Flow','There is at least 1 policy that blocks device code flow.','Consider implementing a policy to block device code flow.','Blocking device code flow prevents potential abuse of device code auth.',@{ 'Block Device Code Flow Overview'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-authentication-flows#device-code-flow' },$false,$true),
@@ -1458,12 +1458,30 @@ if (-not $NoRecommendations) {
       $Recommendation.Value.Status = $Recommendation.Value.SwapStatus
     }
 
-    if ($Recommendation.Value.Status -and $PolicyCheck.state -eq 'enabled') {
-      $Status1 = 'policy-item success'
+    if ($Recommendation.Value.Status) {
+      # Recommendation passed. Differentiate enabled vs reporting-only.
+      if ($PolicyCheck.state -eq 'enabledForReportingButNotEnforced') {
+        $Status1 = 'policy-item success success-report'
+      } elseif ($PolicyCheck.state -eq 'enabled') {
+        $Status1 = 'policy-item success success-enabled'
+      } else {
+        # Other states considered success but generic (retain base success styling)
+        $Status1 = 'policy-item success'
+      }
       $Status2 = 'status-icon-large success'
       $Status3 = '✔'
     } else {
-      $Status1 = 'policy-item warning'
+      # Recommendation failed (policy needs attention). Differentiate enabled vs reporting-only policies.
+      if ($PolicyCheck.state -eq 'enabledForReportingButNotEnforced') {
+        # Reporting-only: distinct background per requirements
+        $Status1 = 'policy-item warning warning-report'
+      } elseif ($PolicyCheck.state -eq 'enabled') {
+        # Enabled & failing: keep existing warning style (optional class for clarity)
+        $Status1 = 'policy-item warning warning-enabled'
+      } else {
+        # Generic fallback (disabled or other states)
+        $Status1 = 'policy-item warning'
+      }
       $Status2 = 'status-icon-large warning'
       $Status3 = '⚠'
     }
@@ -1714,7 +1732,7 @@ if ($HTMLExport) {
   $style = @'
   /* General Styles */
   html, body { font-family: Arial, sans-serif; margin:0; padding:0; }
-  .title { font-size: 1.5em; font-weight: bold; }
+  .title { font-size: 1.2em; font-weight: bold; }
   /* Navigation */
   .navbar-custom { position:fixed; top:0; left:0; right:0; display:flex; align-items:center; justify-content:space-between; background:#005494; color:#fff; padding:14px 18px; box-shadow:0 2px 4px rgba(0,0,0,.25); z-index:999; font-size:14px; }
   .no-recs-banner { margin:70px 16px 10px 18px; background:#fff4cc; border:1px solid #e0c766; padding:10px 14px; border-radius:5px; font-size:0.75rem; color:#5a4700; box-shadow:0 1px 2px rgba(0,0,0,.05); }
@@ -1727,18 +1745,18 @@ if ($HTMLExport) {
   .nav-left, .nav-center, .nav-right { display:flex; align-items:center; }
   .nav-center { flex:1; justify-content:center; font-weight:600; }
   .nav-left .brand { font-weight:700; margin-left:8px; }
-  .nav-right { gap:12px; font-size:12px; }
+  .nav-right { gap:12px; font-size:10px; }
   .icon-server { font-size:18px; line-height:1; }
-  .view-toggle-group .btn-toggle { color:#fff; background:#0d6efd33; border:1px solid rgba(255,255,255,0.4); padding:4px 10px; margin-right:6px; border-radius:4px; cursor:pointer; font-size:0.85rem; user-select:none; }
+  .view-toggle-group .btn-toggle { color:#fff; background:#0d6efd33; border:1px solid rgba(255,255,255,0.4); padding:4px 10px; margin-right:6px; border-radius:4px; cursor:pointer; font-size:0.7rem; user-select:none; }
   .view-toggle-group .btn-toggle.active { background:#ffffff; color:#005494; font-weight:600; box-shadow:0 0 0 2px #ffffff55; }
   .view-toggle-group .btn-toggle:focus { outline:none; }
   .search-box { position:relative; margin-left:12px; }
-  .search-box input { padding:4px 26px 4px 8px; border-radius:4px; border:1px solid #fff; background:#ffffff; color:#003553; font-size:0.8rem; min-width:190px; }
+  .search-box input { padding:4px 26px 4px 8px; border-radius:4px; border:1px solid #fff; background:#ffffff; color:#003553; font-size:0.6rem; min-width:190px; }
   .search-box input:focus { outline:2px solid #91d2ff; }
   .search-box .search-clear { position:absolute; right:6px; top:50%; transform:translateY(-50%); cursor:pointer; color:#005494; font-weight:bold; display:none; }
   .search-box.has-value .search-clear { display:inline; }
   /* Table */
-  table { border-collapse: collapse; margin-bottom:30px; margin-top:55px; font-size:0.9em; min-width:400px; width:100%; table-layout:auto; }
+  table { border-collapse: collapse; margin-bottom:30px; margin-top:55px; font-size:0.8em; min-width:400px; width:100%; table-layout:auto; }
   thead tr { background:linear-gradient(90deg,#005494,#0a79c5); color:#ffffff; text-align:center; }
   th, td { padding:8px 8px; border:1px solid #d2d2d2; vertical-align:top; text-align:center; }
   /* Dynamic width adjustments: allow natural content sizing, but keep some guidance */
@@ -1751,7 +1769,7 @@ if ($HTMLExport) {
   tr:hover { background-color:#d8d8d8 !important; }
   .selected:not(th) { background-color:#eaf7ff !important; }
   /* Improved header readability + distinct sticky first column header */
-  th { background-color:transparent; color:#ffffff; font-weight:600; font-size:0.92rem; letter-spacing:.3px; border-bottom:3px solid #00416d; }
+  th { background-color:transparent; color:#ffffff; font-weight:600; font-size:0.9rem; letter-spacing:.3px; border-bottom:3px solid #00416d; }
   th.sticky-name { background:#004d7f; box-shadow:4px 0 6px -4px rgba(0,0,0,.35); }
   .colselected { outline:3px solid #59c7fb; background:#e3f6ff !important; }
   .sticky-name { position:sticky; inset-inline-start:0; background:#005494; color:#fff; z-index:5; font-weight:700; text-align:left; box-shadow:4px 0 6px -4px rgba(0,0,0,.35); }
@@ -1827,7 +1845,13 @@ if ($HTMLExport) {
   .policy { margin-top:10px; }
   .policy-item { border:2px solid; padding:10px; border-radius:5px; margin-bottom:10px; }
   .policy-item.success { border-color:green; background:#e6ffe6; }
+  .policy-item.success-report { border-color:green; background:#C9DFC9; }
+  .policy-item.success-enabled { border-color:green; background:#e6ffe6; }
   .policy-item.warning { border-color:orange; background:#fff8e6; }
+  /* Failing policies that are reporting-only (enabledForReportingButNotEnforced) */
+  .policy-item.warning-report { border-color:orange; background:#e6dfcf; }
+  /* Optional semantic alias for enabled failing policies; inherits base warning background */
+  .policy-item.warning-enabled { border-color:orange; background:#fff8e6; }
   .policy-item.error { border-color:red; background:#ffe6e6; }
   .policy-content { display:flex; flex-direction:column; padding-left:20px; margin-top:5px; }
   .policy-include, .policy-exclude, .policy-grant { display:flex; align-items:flex-start; margin-top:5px; }
@@ -1839,7 +1863,7 @@ if ($HTMLExport) {
   .status-icon-large.error { color:red; }
   .icon-ext { font-size:0.75em; margin-left:4px; color:#000; }
   .selected td { background:#eaf7ff; }
-  #back-to-top { position:fixed; right:18px; bottom:18px; background:#005494; color:#fff; border:none; padding:10px 14px; border-radius:50%; font-size:16px; cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,.3); display:none; z-index:998; }
+  #back-to-top { position:fixed; right:18px; bottom:18px; background:#005494; color:#fff; border:none; padding:10px 14px; border-radius:50%; font-size:14px; cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,.3); display:none; z-index:998; }
   #back-to-top:hover { background:#0073c7; }
   .timestamp-note { font-size:0.7rem; color:#555; margin:6px 0 14px 0; }
   /* Value match highlighting */
@@ -1850,9 +1874,9 @@ if ($HTMLExport) {
   /* Summary table styling (separate class so not counted as a policy data table) */
   /* Compact summary table styling */
   .summary-wrapper { max-width:760px; margin:0 0 25px 0; }
-  table.summary-table { border-collapse:separate; border-spacing:0; width:100%; font-size:0.72rem; line-height:1.05; margin-bottom:18px; box-shadow:0 0 0 1px #d0d7de; }
+  table.summary-table { border-collapse:separate; border-spacing:0; width:100%; font-size:0.70rem; line-height:1.05; margin-bottom:18px; box-shadow:0 0 0 1px #d0d7de; }
   table.summary-table th, table.summary-table td { border:0; padding:3px 6px; background:#fff; white-space:nowrap; }
-  table.summary-table thead th { position:sticky; top:0; background:#0d3855; color:#fff; font-weight:600; font-size:0.70rem; letter-spacing:.5px; text-transform:uppercase; }
+  table.summary-table thead th { position:sticky; top:0; background:#0d3855; color:#fff; font-weight:600; font-size:0.69rem; letter-spacing:.5px; text-transform:uppercase; }
   /* Striped rows for summary table */
   table.summary-table tbody tr:nth-child(odd)  { background:#ffffff; }
   table.summary-table tbody tr:nth-child(even) { background:#f1f5f8; }
@@ -1919,9 +1943,9 @@ if ($HTMLExport) {
   .desc-cell.expanded .desc-text { -webkit-line-clamp:unset; max-height:none; }
   .desc-expand { position:absolute; bottom:2px; right:4px; background:#ffffffcc; border:1px solid #c3d1dc; font-size:0.55rem; padding:2px 4px; cursor:pointer; border-radius:3px; }
   .desc-expand:hover { background:#f1f5f8; }
-  @media (max-width:1200px){ th,td{min-width:180px;font-size:0.8em;} .search-box input{min-width:150px;} th.bool-col, td.bool-col { min-width:40px; } }
-  @media (max-width:1200px){ th,td{min-width:180px;font-size:0.8em;} .search-box input{min-width:150px;} }
-  @media (max-width:800px){ th,td{min-width:140px;font-size:0.7em;} .view-toggle-group{display:flex;flex-wrap:wrap;} .search-box{margin-top:6px;} }
+  @media (max-width:1200px){ th,td{min-width:180px;font-size:0.6em;} .search-box input{min-width:150px;} th.bool-col, td.bool-col { min-width:40px; } }
+  @media (max-width:1200px){ th,td{min-width:180px;font-size:0.6em;} .search-box input{min-width:150px;} }
+  @media (max-width:800px){ th,td{min-width:140px;font-size:0.5em;} .view-toggle-group{display:flex;flex-wrap:wrap;} .search-box{margin-top:6px;} }
 '  /* Name mismatch styles (moved from dynamic append so they appear in initial style block) */
   .name-mismatch { background: linear-gradient(90deg,#fff8f8 0%,#ffecec 100%); position:relative; }
   .name-mismatch .mismatch-indicator { margin-left:6px; color:#ff1a1a; font-weight:900; text-shadow:0 0 2px rgba(0,0,0,0.25); }
