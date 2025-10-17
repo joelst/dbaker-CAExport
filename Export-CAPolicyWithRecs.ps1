@@ -1459,11 +1459,13 @@ if (-not $NoRecommendations) {
     }
 
     if ($Recommendation.Value.Status) {
-      # Recommendation passed. Differentiate enabled vs reporting-only.
+      # Recommendation passed. Differentiate enabled vs reporting-only vs disabled.
       if ($PolicyCheck.state -eq 'enabledForReportingButNotEnforced') {
         $Status1 = 'policy-item success success-report'
       } elseif ($PolicyCheck.state -eq 'enabled') {
         $Status1 = 'policy-item success success-enabled'
+      } elseif ($PolicyCheck.state -eq 'disabled') {
+        $Status1 = 'policy-item success success-disabled'
       } else {
         # Other states considered success but generic (retain base success styling)
         $Status1 = 'policy-item success'
@@ -1471,15 +1473,18 @@ if (-not $NoRecommendations) {
       $Status2 = 'status-icon-large success'
       $Status3 = '✔'
     } else {
-      # Recommendation failed (policy needs attention). Differentiate enabled vs reporting-only policies.
+      # Recommendation failed (policy needs attention). Differentiate enabled vs reporting-only vs disabled policies.
       if ($PolicyCheck.state -eq 'enabledForReportingButNotEnforced') {
         # Reporting-only: distinct background per requirements
         $Status1 = 'policy-item warning warning-report'
       } elseif ($PolicyCheck.state -eq 'enabled') {
         # Enabled & failing: keep existing warning style (optional class for clarity)
         $Status1 = 'policy-item warning warning-enabled'
+      } elseif ($PolicyCheck.state -eq 'disabled') {
+        # Disabled & failing: distinct warning-disabled variant
+        $Status1 = 'policy-item warning warning-disabled'
       } else {
-        # Generic fallback (disabled or other states)
+        # Generic fallback (other states)
         $Status1 = 'policy-item warning'
       }
       $Status2 = 'status-icon-large warning'
@@ -1847,11 +1852,13 @@ if ($HTMLExport) {
   .policy-item.success { border-color:green; background:#e6ffe6; }
   .policy-item.success-report { border-color:green; background:#C9DFC9; }
   .policy-item.success-enabled { border-color:green; background:#e6ffe6; }
+  .policy-item.success-disabled { border-color:green; background:#909F90; }
   .policy-item.warning { border-color:orange; background:#fff8e6; }
   /* Failing policies that are reporting-only (enabledForReportingButNotEnforced) */
   .policy-item.warning-report { border-color:orange; background:#e6dfcf; }
   /* Optional semantic alias for enabled failing policies; inherits base warning background */
   .policy-item.warning-enabled { border-color:orange; background:#fff8e6; }
+  .policy-item.warning-disabled { border-color:orange; background:#b3aea1; }
   .policy-item.error { border-color:red; background:#ffe6e6; }
   .policy-content { display:flex; flex-direction:column; padding-left:20px; margin-top:5px; }
   .policy-include, .policy-exclude, .policy-grant { display:flex; align-items:flex-start; margin-top:5px; }
