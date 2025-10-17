@@ -836,10 +836,10 @@ function Test-CA06 { param($PolicyCheck)
   (Test-OverlapIncludeExclude $PolicyCheck.Conditions.Applications.IncludeApplications $PolicyCheck.Conditions.Applications.ExcludeApplications)
 }
 function Test-CA07 { param($PolicyCheck)
-  (($null -eq $PolicyCheck.Conditions.Users.IncludeUsers) -or $PolicyCheck.Conditions.Users.IncludeUsers.Count -eq 0 -or $PolicyCheck.Conditions.Users.IncludeUsers -eq 'None') -and
-  (($null -eq $PolicyCheck.Conditions.Users.IncludeGroups) -or $PolicyCheck.Conditions.Users.IncludeGroups.Count -eq 0 -or ($PolicyCheck.Conditions.Users.IncludeGroups | ForEach-Object { $_ -match '\((\d+)\)' -and [int]$matches[1] -eq 0 })) -and
-  (($null -eq $PolicyCheck.Conditions.Users.IncludeRoles) -or $PolicyCheck.Conditions.Users.IncludeRoles.Count -eq 0) -and
-  ($null -eq $PolicyCheck.Conditions.Users.IncludeGuestsOrExternalUsers.GuestOrExternalUserTypes)
+  (([string]::IsNullOrWhiteSpace($PolicyCheck.Conditions.Users.IncludeUsers)) -or $PolicyCheck.Conditions.Users.IncludeUsers.Count -eq 0 -or $PolicyCheck.Conditions.Users.IncludeUsers -eq 'None') -and
+  (([string]::IsNullOrWhiteSpace($PolicyCheck.Conditions.Users.IncludeGroups)) -or $PolicyCheck.Conditions.Users.IncludeGroups.Count -eq 0 -or ($PolicyCheck.Conditions.Users.IncludeGroups | ForEach-Object { $_ -match '\((\d+)\)' -and [int]$matches[1] -eq 0 })) -and
+  (([string]::IsNullOrWhiteSpace($PolicyCheck.Conditions.Users.IncludeRoles)) -or $PolicyCheck.Conditions.Users.IncludeRoles.Count -eq 0) -and
+  ([string]::IsNullOrWhiteSpace($PolicyCheck.Conditions.Users.IncludeGuestsOrExternalUsers.GuestOrExternalUserTypes))
 }
 function Test-CA08 { param($PolicyCheck)
   $PolicyCheck.Conditions.Users.IncludeUsers -ne 'None' -and
