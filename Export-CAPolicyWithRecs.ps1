@@ -2661,7 +2661,15 @@ document.addEventListener('DOMContentLoaded', function(){
   $fullPage = $htmlDoc + $HtmlParts + $fallbackToggle + '</body></html>'
   $fullPage | Out-File $Launch -Encoding UTF8
   if (-not $NoBrowser) {
-    Start-Process $Launch 
+    if ($IsWindows -or $PSVersionTable.PSVersion.Major -le 5) {
+      Start-Process $Launch
+    } elseif ($IsMacOS) {
+      & open $Launch
+    } elseif ($IsLinux) {
+      & xdg-open $Launch
+    } else {
+      Write-Info "HTML report saved to: $Launch (auto-open not supported on this platform)"
+    }
   }
 }
 if ($JsonExport) {
