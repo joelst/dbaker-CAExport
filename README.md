@@ -1,4 +1,4 @@
- # Export Conditionsl Access Policies PowerShell scripts
+# Export Conditional Access Policies PowerShell Scripts
 
 Export and analyze Microsoft Entra ID (Azure AD) Conditional Access (CA) policies for documentation, security review, and remediation planning.
 
@@ -15,10 +15,15 @@ Two scripts are provided:
 * Automatic Microsoft Graph connection (Policy.Read.All, Directory.Read.All, RoleManagement.Read.All).
 * Policy enrichment: resolves Users, Groups, Roles (active + template/definition), Service Principals, Named Locations, Terms of Use.
 * Duplicate policy detection (normalized JSON → SHA256 hash) with cross‑reference listing.
+* Offline re‑hydration mode (`-RawInputFile <*_raw.json>`): regenerate HTML / CSV / recommendations from a prior raw snapshot without calling Microsoft Graph.
+
 * Interactive HTML report with tabbed layout:
 	* Summary (metrics & percentages)
 	* Policy Details (search/filter table; highlight matching cell values; per‑column highlight)
 	* Recommendations (status, rationale, links, pass/attention filter buttons)
+* Overlap legend chip & row highlighting: quickly filter policies where include/exclude sets intersect (potentially nullifying scope)
+* Phish‑resistant MFA evaluation (CA‑05) now inspects Authentication Strength AllowedCombinations (excludes non‑phish‑resistant factors)
+* Enhanced admin role detection: resolves active roles, template IDs, and role definition IDs (GUID → name) before MFA checks
 * Legend / utility bar (status badges, recommendation icons, boolean toggle, ID column toggle)
 * Layout toggle (dynamic natural column widths vs fixed legacy widths)
 * Boolean display toggle (icons ✔/— or text True/False)
@@ -29,6 +34,7 @@ Two scripts are provided:
 * CSV (long), CSV Pivot (wide) and JSON export options
 * Duplicate detection, role/name resolution, risk & device metrics in Summary
 * Optional fast mode: `-NoRecommendations` skips recommendation analysis (faster, omits Recommendations tab & related JavaScript/state)
+* Inline recommendations (no external data file dependency) and resilient HTML sanitizer (strips scripts/handlers but preserves internal markup)
 
 Screenshots:
 ![Recommendations Tab](./images/CaExport-rec.png)
@@ -74,6 +80,11 @@ When the script runs it will request admin consent to allow it to use the Micros
 
 # Fast export (skip recommendations & omit tab)
 ./Export-CAPolicyWithRecs.ps1 -NoRecommendations
+
+# Offline (re‑hydrate from prior raw snapshot produced by an earlier run)
+#   - Skips Graph connection & enrichment queries
+#   - Still evaluates recommendations on provided raw policy array
+./Export-CAPolicyWithRecs.ps1 -RawInputFile .\CAExportRecs_Tenant_20250101_120000_raw.json -Html -Json
 ```
 
 **Output files are timestamped:**
@@ -94,6 +105,7 @@ When the script runs it will request admin consent to allow it to use the Micros
 | `CsvPivot` | Switch | Emit pivot‑friendly wide CSV. |
 | `CsvColumns` | String[] | Custom column subset/order for `-Csv`. |
 | `NoRecommendations` | Switch | Skip recommendation analysis & omit Recommendations tab (improves runtime in large tenants). |
+| `RawInputFile` | String (path) | Use a previously exported `*_raw.json` file (offline mode). Skips Graph auth + enrichment; recommendations derived from provided data. |
 
 If no export switch is specified, HTML, JSON, and CSV are produced automatically (pivot remains opt-in).
 
@@ -106,8 +118,8 @@ The recommendation engine currently evaluates:
 2. MFA policy targets All Users & All Cloud Apps
 3. Mobile device policy requiring MDM / MAM
 4. Hybrid Join or Intune compliance required (Windows/Mac)
-5. MFA required for Admin roles
-6. Phish‑resistant MFA for Admins
+5. MFA required for Admin roles (accepts built‑in control or any authentication strength indicating MFA/passwordless characteristics)
+6. Phish‑resistant MFA for Admins (passes only when the assigned authentication strength's AllowedCombinations excludes: deviceBasedPush, temporaryAccessPassOneTime, temporaryAccessPassMultiUse, microsoftAuthenticatorPush, sms, voice, softwareOath, hardwareOath, x509CertificateSingleFactor, federatedSingleFactor, qrCodePin)
 7. Policy excludes same entities it includes
 8. No users targeted
 9. Direct user assignment discouraged
@@ -132,6 +144,7 @@ Policies are normalized (sorted properties, non‑semantic fields removed) → s
 | `*.json` | Enriched policy objects + duplicate metadata. |
 | `*.csv` | Flat list (one row per policy). |
 | `*-pivot.csv` | Wide format for Excel / BI pivoting. |
+| `*_raw.json` | Raw policy array snapshot (input for `-RawInputFile` offline regeneration). |
 
 ---
 ## Troubleshooting
@@ -140,8 +153,10 @@ Policies are normalized (sorted properties, non‑semantic fields removed) → s
 |-------|-----------|
 | Empty policy list | Confirm permissions: Policy.Read.All + Directory.Read.All. Run `Disconnect-MgGraph` then rerun. |
 | Unresolved role IDs | Role not active and no definition found: activate role or ensure sufficient RoleManagement.Read.All consent. |
+| Sanitized recommendation policy markup shows literal `&lt;` tags | You may be viewing an old report generated before sanitizer simplification; regenerate with latest script. |
 | Missing images in HTML | Ensure PNGs are in same directory as report or adjust paths. |
 | Duplicate false positives | Open JSON, verify normalized fields; adjust logic if environment-specific noise appears. |
+| Offline mode shows fewer enriched names | `-RawInputFile` skips live resolution; rerun without offline mode for fresh enrichment. |
 
 ---
 ## Contributing
@@ -157,7 +172,9 @@ PRs welcome. Please:
 
 | Version | Highlights |
 |---------|-----------|
-| 3.1.1 | Pivot CSV dataset restored (wide format); improved role resolution (template & definition IDs), GUID parameter validation, duplicate detection hashing improvements, accessibility & JSON copy utilities. |
+| 3.3 | Offline mode (`-RawInputFile`), recommendations array inlined (removed external data file), improved Recommendations tab styling, simplified HTML sanitizer (prevents escaped structural tags), removed obsolete quiet behavior, minor accessibility & layout refinements. |
+| 3.2 | Overlap filter chip + row highlighting; Phish‑resistant MFA evaluation using AllowedCombinations; improved admin role GUID resolution; authentication strength caching; CA‑05 logic hardened; null overlap guard fix. |
+| 3.1| Pivot CSV dataset restored (wide format); improved role resolution (template & definition IDs), GUID parameter validation, duplicate detection hashing improvements, accessibility & JSON copy utilities. |
 
 | 3.0 | Recommendations refactor, duplicate detection, summary tab, accessibility & help improvements. |
 | 2.x | Styling overhaul, column selection improvements. |
