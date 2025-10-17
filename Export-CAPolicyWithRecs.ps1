@@ -91,12 +91,8 @@ param (
   [switch]$Csv,
   [switch]$CsvPivot,
   [switch]$NoRecommendations,
-  [string[]]$CsvColumns,
-  [Parameter()] [Alias()] [switch]$UnusedPlaceholderRemoveLater  # (Removed -Quiet; placeholder to avoid param position shift if referenced externally)
+  [string[]]$CsvColumns
 )
-
-# Quiet mode removed (previous -Quiet parameter). Placeholder variable retained only if legacy references exist; will always be false.
-$script:QuietPreference = $false
 
 function Write-Info {
   <#
@@ -835,12 +831,14 @@ function Test-CA06 { param($PolicyCheck)
   (Test-OverlapIncludeExclude $PolicyCheck.Conditions.Locations.IncludeLocations $PolicyCheck.Conditions.Locations.ExcludeLocations) -or
   (Test-OverlapIncludeExclude $PolicyCheck.Conditions.Applications.IncludeApplications $PolicyCheck.Conditions.Applications.ExcludeApplications)
 }
+
 function Test-CA07 { param($PolicyCheck)
-  (([string]::IsNullOrWhiteSpace($PolicyCheck.Conditions.Users.IncludeUsers)) -or $PolicyCheck.Conditions.Users.IncludeUsers.Count -eq 0 -or $PolicyCheck.Conditions.Users.IncludeUsers -eq 'None') -and
-  (([string]::IsNullOrWhiteSpace($PolicyCheck.Conditions.Users.IncludeGroups)) -or $PolicyCheck.Conditions.Users.IncludeGroups.Count -eq 0 -or ($PolicyCheck.Conditions.Users.IncludeGroups | ForEach-Object { $_ -match '\((\d+)\)' -and [int]$matches[1] -eq 0 })) -and
+  ([string]::IsNullOrWhiteSpace($PolicyCheck.Conditions.Users.IncludeUsers) -or $PolicyCheck.Conditions.Users.IncludeUsers.Count -eq 0 -or $PolicyCheck.Conditions.Users.IncludeUsers -eq 'None') -and
+  (([string]::IsNullOrWhiteSpace($PolicyCheck.Conditions.Users.IncludeGroups)) -or $PolicyCheck.Conditions.Users.IncludeGroups.Count -eq 0) -and
   (([string]::IsNullOrWhiteSpace($PolicyCheck.Conditions.Users.IncludeRoles)) -or $PolicyCheck.Conditions.Users.IncludeRoles.Count -eq 0) -and
-  ([string]::IsNullOrWhiteSpace($PolicyCheck.Conditions.Users.IncludeGuestsOrExternalUsers.GuestOrExternalUserTypes))
+  ($null -eq $PolicyCheck.Conditions.Users.IncludeGuestsOrExternalUsers.GuestOrExternalUserTypes)
 }
+
 function Test-CA08 { param($PolicyCheck)
   $PolicyCheck.Conditions.Users.IncludeUsers -ne 'None' -and
   $null -ne $PolicyCheck.Conditions.Users.IncludeUsers -and
@@ -956,9 +954,8 @@ if ($RawInputFile) {
 }
 
 # Raw snapshot & index
-$RawPolicyObjects = $CAPolicy | ForEach-Object { $_ }  # shallow clone
 $RawPolicyIndex = @{}
-foreach ($rp in $RawPolicyObjects) {
+foreach ($rp in $CAPolicy) {
   if ($rp.id) {
     $RawPolicyIndex[$rp.id] = $rp 
   } 
@@ -972,70 +969,32 @@ $appIds = [System.Collections.Generic.HashSet[string]]::new()
 $locIds = [System.Collections.Generic.HashSet[string]]::new()
 $touIds = [System.Collections.Generic.HashSet[string]]::new()
 
+# Collect IDs for enrichment (consolidated for clarity)
 foreach ($p in $CAPolicy) {
   $c = $p.conditions
   if ($c.users) {
+    # Users (excluding sentinels)
     foreach ($i in @($c.users.includeUsers)) {
-      if ($i -and $i -notin @('All', 'None', 'GuestsOrExternalUsers')) {
-        [void]$userIds.Add($i) 
-      } 
+      if ($i -and $i -notin @('All', 'None', 'GuestsOrExternalUsers')) { [void]$userIds.Add($i) }
     }
-    foreach ($i in @($c.users.excludeUsers)) {
-      if ($i) {
-        [void]$userIds.Add($i) 
-      } 
-    }
-    foreach ($i in @($c.users.includeGroups)) {
-      if ($i) {
-        [void]$groupIds.Add($i) 
-      } 
-    }
-    foreach ($i in @($c.users.excludeGroups)) {
-      if ($i) {
-        [void]$groupIds.Add($i) 
-      } 
-    }
-    foreach ($i in @($c.users.includeRoles)) {
-      if ($i) {
-        [void]$roleIds.Add($i) 
-      } 
-    }
-    foreach ($i in @($c.users.excludeRoles)) {
-      if ($i) {
-        [void]$roleIds.Add($i) 
-      } 
-    }
+    foreach ($i in @($c.users.excludeUsers)) { if ($i) { [void]$userIds.Add($i) } }
+    # Groups
+    foreach ($i in @($c.users.includeGroups)) { if ($i) { [void]$groupIds.Add($i) } }
+    foreach ($i in @($c.users.excludeGroups)) { if ($i) { [void]$groupIds.Add($i) } }
+    # Roles
+    foreach ($i in @($c.users.includeRoles)) { if ($i) { [void]$roleIds.Add($i) } }
+    foreach ($i in @($c.users.excludeRoles)) { if ($i) { [void]$roleIds.Add($i) } }
   }
   if ($c.applications) {
-    foreach ($i in @($c.applications.includeApplications)) {
-      if ($i -and (Test-IsGuid $i)) {
-        [void]$appIds.Add($i) 
-      } 
-    }
-    foreach ($i in @($c.applications.excludeApplications)) {
-      if ($i -and (Test-IsGuid $i)) {
-        [void]$appIds.Add($i) 
-      } 
-    }
+    foreach ($i in @($c.applications.includeApplications)) { if ($i -and (Test-IsGuid $i)) { [void]$appIds.Add($i) } }
+    foreach ($i in @($c.applications.excludeApplications)) { if ($i -and (Test-IsGuid $i)) { [void]$appIds.Add($i) } }
   }
   if ($c.locations) {
-    foreach ($i in @($c.locations.includeLocations)) {
-      if ($i -and (Test-IsGuid $i)) {
-        [void]$locIds.Add($i) 
-      } 
-    }
-    foreach ($i in @($c.locations.excludeLocations)) {
-      if ($i -and (Test-IsGuid $i)) {
-        [void]$locIds.Add($i) 
-      } 
-    }
+    foreach ($i in @($c.locations.includeLocations)) { if ($i -and (Test-IsGuid $i)) { [void]$locIds.Add($i) } }
+    foreach ($i in @($c.locations.excludeLocations)) { if ($i -and (Test-IsGuid $i)) { [void]$locIds.Add($i) } }
   }
-  if ($p.grantControls) {
-    foreach ($i in @($p.grantControls.termsOfUse)) {
-      if ($i -and (Test-IsGuid $i)) {
-        [void]$touIds.Add($i) 
-      } 
-    }
+  if ($p.grantControls -and $p.grantControls.termsOfUse) {
+    foreach ($i in @($p.grantControls.termsOfUse)) { if ($i -and (Test-IsGuid $i)) { [void]$touIds.Add($i) } }
   }
 }
 
@@ -2159,17 +2118,6 @@ if ($HTMLExport) {
   $table += '<tbody>'
   foreach ($p in $CAExport) {
     # Build overlap sets for users, roles, (groups if present) for bold highlighting
-    function New-TokenSet {
-      param($Value)
-      $set = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-      if ($null -ne $Value) {
-        foreach ($tok in (@($Value) -join "`n") -split '[,\n]') {
-          $t = ($tok).Trim()
-          if ($t) { $null = $set.Add($t) }
-        }
-      }
-      return $set
-    }
     $incUsersRaw = $p.PSObject.Properties.Match('Included Users') ? $p.'Included Users' : $null
     $excUsersRaw = $p.PSObject.Properties.Match('Excluded Users') ? $p.'Excluded Users' : $null
     $incUsers = New-TokenSet $incUsersRaw
@@ -2291,7 +2239,7 @@ if ($HTMLExport) {
 
   # Embed lightweight policy index for lazy JSON (excluding heavy raw JSON fields)
   $policyDataJson = ($CAExport | Select-Object PolicyId, Name, Status, 'Grant Controls', 'Included Users','Excluded Users','RolesIncludeIds','RolesExcludeIds','Applications','Locations','Platforms','Client Apps','State' | ConvertTo-Json -Depth 4 -Compress)
-  $rawIndexJson = if($RawPolicyIndex.Count -gt 0){ ($RawPolicyIndex.GetEnumerator() | ForEach-Object { $_.Value } | ConvertTo-Json -Depth 6 -Compress) } else { '[]' }
+  $rawIndexJson = if($RawPolicyIndex.Count -gt 0){ ($CAPolicy | ConvertTo-Json -Depth 6 -Compress) } else { '[]' }
   $fallbackToggle = @"
 <script>
 window.CAExportData = $policyDataJson;
