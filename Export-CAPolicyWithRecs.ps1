@@ -14,7 +14,7 @@
   Switch. Generate the interactive HTML report (default if no other export switch is specified).
 
 .PARAMETER Json
-  Switch. Generate a JSON file containing the enriched policy objects (including duplicate markers).
+  Switch. Generate a JSON file containing the enriched policy objects.
 
 .PARAMETER Csv
   Switch. Generate a flattened CSV export of the policy objects suitable for spreadsheet review.
@@ -81,12 +81,12 @@ param (
   [Parameter()]
   [ValidatePattern('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')]
   [String]$PolicyID,
-  [Parameter(HelpMessage='Path to previously exported *_raw.json to operate offline (skips Graph calls).')]
+  [Parameter(HelpMessage = 'Path to previously exported *_raw.json to operate offline (skips Graph calls).')]
   [ValidateScript({ Test-Path $_ -PathType Leaf })]
   [string]$RawInputFile,
   [switch]$Html,
   [switch]$NoBrowser,
-  [Parameter()][ValidateScript({ Test-Path $_ -PathType Container })][string]$OutputPath='.',
+  [Parameter()][ValidateScript({ Test-Path $_ -PathType Container })][string]$OutputPath = '.',
   [switch]$Json,
   [switch]$Csv,
   [switch]$CsvPivot,
@@ -155,7 +155,7 @@ function Format-PolicyStatus {
   param([string]$Status)
   switch ($Status) {
     'enabledForReportingButNotEnforced' {
-      return 'reporting only' 
+      return 'report only' 
     }
     default {
       return $Status 
@@ -189,12 +189,15 @@ function Get-RecommendedPolicyName {
   if ($users.includeUsers -contains 'All') {
     if ($users.excludeUsers -and $users.excludeUsers.Count -gt 0) {
       $scope = 'AllUsers-Exceptions'
-    } else {
+    }
+    else {
       $scope = 'AllUsers'
     }
-  } elseif ($users.includeUsers -contains 'GuestsOrExternalUsers') {
+  }
+  elseif ($users.includeUsers -contains 'GuestsOrExternalUsers') {
     $scope = 'Guests'
-  } elseif ($users.includeRoles -and $users.includeRoles.Count -gt 0) {
+  }
+  elseif ($users.includeRoles -and $users.includeRoles.Count -gt 0) {
     # Check for privileged admin roles
     $adminRoles = @('Global Administrator', 'Privileged Role Administrator', 'Security Administrator', 'Conditional Access Administrator')
     $hasAdminRole = $false
@@ -206,12 +209,15 @@ function Get-RecommendedPolicyName {
     }
     $scope = if ($hasAdminRole) {
       'PrivAdmins' 
-    } else {
+    }
+    else {
       'Roles' 
     }
-  } elseif ($users.includeGroups -and $users.includeGroups.Count -gt 0) {
+  }
+  elseif ($users.includeGroups -and $users.includeGroups.Count -gt 0) {
     $scope = 'Groups'
-  } elseif ($users.includeUsers -and $users.includeUsers.Count -gt 0) {
+  }
+  elseif ($users.includeUsers -and $users.includeUsers.Count -gt 0) {
     $scope = 'Users'
   }
 
@@ -223,14 +229,16 @@ function Get-RecommendedPolicyName {
   if ($conditions.userRiskLevels -and $conditions.userRiskLevels.Count -gt 0) {
     if ($conditions.userRiskLevels -contains 'high') {
       $condition += 'HighUserRisk'
-    } else {
+    }
+    else {
       $condition += 'UserRisk'
     }
   }
   if ($conditions.signInRiskLevels -and $conditions.signInRiskLevels.Count -gt 0) {
     if ($conditions.signInRiskLevels -contains 'high') {
       $condition += 'HighSignInRisk'
-    } else {
+    }
+    else {
       $condition += 'SignInRisk'
     }
   }
@@ -259,9 +267,11 @@ function Get-RecommendedPolicyName {
     $platforms = $conditions.platforms.includePlatforms
     if ($platforms -contains 'android' -and $platforms -contains 'iOS') {
       $condition += 'MobileDevices'
-    } elseif ($platforms.Count -eq 1) {
+    }
+    elseif ($platforms.Count -eq 1) {
       $condition += $platforms[0].Substring(0, 1).ToUpper() + $platforms[0].Substring(1)
-    } else {
+    }
+    else {
       $condition += 'Platforms'
     }
   }
@@ -270,7 +280,8 @@ function Get-RecommendedPolicyName {
   if ($conditions.devices.includeDevices -and $conditions.devices.includeDevices.Count -gt 0) {
     if ($conditions.devices.includeDevices -contains 'All') {
       $condition += 'AllDevices'
-    } else {
+    }
+    else {
       $condition += 'Devices'
     }
   }
@@ -285,9 +296,11 @@ function Get-RecommendedPolicyName {
     $apps = $conditions.applications.includeApplications
     if ($apps -contains 'All') {
       $condition += 'AllApps'
-    } elseif ($apps -contains 'Office365') {
+    }
+    elseif ($apps -contains 'Office365') {
       $condition += 'Office365'
-    } else {
+    }
+    else {
       $condition += 'CloudApps'
     }
   }
@@ -304,27 +317,37 @@ function Get-RecommendedPolicyName {
 
   if ($grantControls.builtInControls -contains 'Block') {
     $control = 'Block'
-  } elseif ($grantControls.builtInControls -contains 'Mfa') {
+  }
+  elseif ($grantControls.builtInControls -contains 'Mfa') {
     if ($grantControls.authenticationStrength -and $grantControls.authenticationStrength.displayName) {
       $control = 'RequireAuthStrength'
-    } elseif ($grantControls.builtInControls.Count -eq 1) {
+    }
+    elseif ($grantControls.builtInControls.Count -eq 1) {
       $control = 'RequireMFA'
-    } else {
+    }
+    else {
       $control = 'RequireMFA-Plus'
     }
-  } elseif ($grantControls.builtInControls -contains 'CompliantDevice') {
+  }
+  elseif ($grantControls.builtInControls -contains 'CompliantDevice') {
     $control = 'RequireCompliantDevice'
-  } elseif ($grantControls.builtInControls -contains 'DomainJoinedDevice') {
+  }
+  elseif ($grantControls.builtInControls -contains 'DomainJoinedDevice') {
     $control = 'RequireDomainJoined'
-  } elseif ($grantControls.builtInControls -contains 'ApprovedApplication') {
+  }
+  elseif ($grantControls.builtInControls -contains 'ApprovedApplication') {
     $control = 'RequireApprovedApp'
-  } elseif ($grantControls.builtInControls -contains 'CompliantApplication') {
+  }
+  elseif ($grantControls.builtInControls -contains 'CompliantApplication') {
     $control = 'RequireCompliantApp'
-  } elseif ($grantControls.builtInControls -contains 'PasswordChange') {
+  }
+  elseif ($grantControls.builtInControls -contains 'PasswordChange') {
     $control = 'RequirePasswordChange'
-  } elseif ($grantControls.termsOfUse -and $grantControls.termsOfUse.Count -gt 0) {
+  }
+  elseif ($grantControls.termsOfUse -and $grantControls.termsOfUse.Count -gt 0) {
     $control = 'RequireToU'
-  } else {
+  }
+  else {
     $control = 'Grant'
   }
 
@@ -357,7 +380,7 @@ function Get-RecommendedPolicyName {
   }
 
   # ID - Simple incremental ID (could be enhanced with actual policy counting)
-  $id = '001'
+  $id = '{0:D3}' -f (Get-Random -Maximum 999)
 
   # Combine components - limit condition to first 3 for readability with enhanced naming
   $conditionStr = ($condition | Select-Object -First 3) -join '-'
@@ -402,7 +425,8 @@ function Initialize-GraphModule {
   try {
     # Prefer TLS 1.2 for gallery operations (safe no-op on newer PowerShell)
     [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-  } catch {
+  }
+  catch {
     Write-Verbose 'Failed to set SecurityProtocol to TLS 1.2; proceeding with defaults.'
   }
 
@@ -413,7 +437,8 @@ function Initialize-GraphModule {
       Write-Info 'Installing NuGet package provider (CurrentUser)'
       Install-PackageProvider -Name NuGet -Scope CurrentUser -Force -MinimumVersion '2.8.5.201' -ErrorAction Stop | Out-Null
     }
-  } catch {
+  }
+  catch {
     Write-Warn ('Failed to install NuGet provider: {0}' -f $_.Exception.Message)
   }
 
@@ -423,11 +448,13 @@ function Initialize-GraphModule {
     if ($repo.InstallationPolicy -ne 'Trusted') {
       try {
         Set-PSRepository -Name 'PSGallery' -InstallationPolicy Trusted -ErrorAction Stop 
-      } catch {
+      }
+      catch {
         Write-Warn 'Could not set PSGallery as Trusted. You may be prompted during install.' 
       }
     }
-  } catch {
+  }
+  catch {
     Write-Warn 'PowerShell Gallery (PSGallery) not found. Module installation may fail until the repository is available.'
   }
 
@@ -438,7 +465,8 @@ function Initialize-GraphModule {
       try {
         # Hardened install: remove -SkipPublisherCheck / -AllowClobber; prompt avoidance left to repo trust
         Install-Module -Name $m -Scope CurrentUser -Force -ErrorAction Stop
-      } catch {
+      }
+      catch {
         Write-Warn ("Failed to install module '{0}': {1}" -f $m, $_.Exception.Message)
         continue
       }
@@ -465,14 +493,16 @@ function Connect-GraphContext {
   $ctx = $null
   try {
     $ctx = Get-MgContext -ErrorAction Stop 
-  } catch {
+  }
+  catch {
     Write-Verbose 'No existing Graph context found (Get-MgContext failed).' 
   }
   $requiredScopes = 'Policy.Read.All', 'Directory.Read.All', 'RoleManagement.Read.All'
   $needsConnect = $false
   if (-not $ctx -or -not $ctx.Account) {
     $needsConnect = $true 
-  } else {
+  }
+  else {
     $granted = @($ctx.Scopes)
     foreach ($r in $requiredScopes) {
       if ($granted -notcontains $r) {
@@ -502,7 +532,8 @@ function Invoke-SafeGet {
   param([Parameter(Mandatory)][ScriptBlock]$ScriptBlock)
   try {
     & $ScriptBlock 
-  } catch {
+  }
+  catch {
     Write-Verbose ('Invoke-SafeGet suppressed error: {0}' -f $_.Exception.Message); return $null 
   }
 }
@@ -529,7 +560,8 @@ function Convert-IdListToName {
   }
   return $List | ForEach-Object { if ($Map.ContainsKey($_)) {
       $Map[$_] 
-    } else {
+    }
+    else {
       $_ 
     } }
 }
@@ -689,10 +721,10 @@ function Test-PolicyTargetsAdminRoles {
   }
   $resolvedLower = $resolved | ForEach-Object { ($_ | Out-String).Trim().ToLowerInvariant() }
   $adminTargets = @(
-    'privileged role administrator','global administrator','privileged authentication administrator','security administrator',
-    'sharepoint administrator','exchange administrator','conditional access administrator','helpdesk administrator',
-    'billing administrator','user administrator','authentication administrator','application administrator',
-    'cloud application administrator','password administrator'
+    'privileged role administrator', 'global administrator', 'privileged authentication administrator', 'security administrator',
+    'sharepoint administrator', 'exchange administrator', 'conditional access administrator', 'helpdesk administrator',
+    'billing administrator', 'user administrator', 'authentication administrator', 'application administrator',
+    'cloud application administrator', 'password administrator'
   )
   return (($resolvedLower | Where-Object { $adminTargets -contains $_ }).Count -gt 0)
 }
@@ -705,7 +737,7 @@ function Initialize-AuthStrengthCache {
     $script:AuthStrengthCachePopulated = $true
     return
   }
-  $strengths = Invoke-SafeGet { Get-MgPolicyAuthenticationStrengthPolicy -All -Property Id,DisplayName,AllowedCombinations }
+  $strengths = Invoke-SafeGet { Get-MgPolicyAuthenticationStrengthPolicy -All -Property Id, DisplayName, AllowedCombinations }
   if ($strengths) {
     foreach ($s in $strengths) {
       if ($s.Id) { $script:AuthStrengthCache[$s.Id] = $s }
@@ -715,13 +747,15 @@ function Initialize-AuthStrengthCache {
   $script:AuthStrengthCachePopulated = $true
 }
 
-function Get-AssignedAuthStrengthObject { param($Policy)
+function Get-AssignedAuthStrengthObject {
+  param($Policy)
   if (-not $Policy -or -not $Policy.GrantControls.AuthenticationStrength) { return $null }
   Initialize-AuthStrengthCache
   $as = $Policy.GrantControls.AuthenticationStrength
   if ($as.Id -and $script:AuthStrengthCache.ContainsKey($as.Id)) { return $script:AuthStrengthCache[$as.Id] }
   if ($as.DisplayName -and $script:AuthStrengthCache.ContainsKey($as.DisplayName)) { return $script:AuthStrengthCache[$as.DisplayName] }
-  return $null }
+  return $null 
+}
 
 function Test-IsPhishResistantStrength {
   <#
@@ -738,126 +772,127 @@ function Test-IsPhishResistantStrength {
   param($Policy)
   $strengthObj = Get-AssignedAuthStrengthObject -Policy $Policy
   if (-not $strengthObj -or -not $strengthObj.AllowedCombinations) { return $false }
-  $nonPhish = @('deviceBasedPush','temporaryAccessPassOneTime','temporaryAccessPassMultiUse','microsoftAuthenticatorPush','sms','voice','softwareOath','hardwareOath','x509CertificateSingleFactor','federatedSingleFactor','qrCodePin')
+  $nonPhish = @('deviceBasedPush', 'temporaryAccessPassOneTime', 'temporaryAccessPassMultiUse', 'microsoftAuthenticatorPush', 'sms', 'voice', 'softwareOath', 'hardwareOath', 'x509CertificateSingleFactor', 'federatedSingleFactor', 'qrCodePin')
   $contains = ($strengthObj.AllowedCombinations | Where-Object { $nonPhish -contains $_ }).Count -gt 0
   return (-not $contains)
 }
 
-function Test-PolicyRequiresMfaForAdmins { param($Policy)
+function Test-PolicyRequiresMfaForAdmins {
+  param($Policy)
   if (-not (Test-PolicyTargetsAdminRoles -Policy $Policy)) { return $false }
   $strengthName = ''
   if ($Policy.GrantControls.AuthenticationStrength.DisplayName) { $strengthName = [string]$Policy.GrantControls.AuthenticationStrength.DisplayName }
   $l = $strengthName.ToLowerInvariant()
   $hasImpliedMfa = ($Policy.GrantControls.BuiltInControls -contains 'Mfa') -or ($l -match 'phishing') -or ($l -match 'passwordless') -or ($l -match 'multifactor') -or ($l -match '\bmfa\b')
-  return $hasImpliedMfa }
+  return $hasImpliedMfa 
+}
 
-function Test-PolicyRequiresPhishResistantMfaForAdmins { param($Policy)
+function Test-PolicyRequiresPhishResistantMfaForAdmins {
+  param($Policy)
   if (-not (Test-PolicyTargetsAdminRoles -Policy $Policy)) { return $false }
-  return (Test-IsPhishResistantStrength -Policy $Policy) }
+  return (Test-IsPhishResistantStrength -Policy $Policy) 
+}
 
-function Test-OverlapIncludeExclude { param($Include,$Exclude)
+function Test-OverlapIncludeExclude {
+  param($Include, $Exclude)
   if (-not $Include -or -not $Exclude) { return $false }
   $inc = @($Include) | Where-Object { $_ -ne $null -and $_ -ne '' }
   $exc = @($Exclude) | Where-Object { $_ -ne $null -and $_ -ne '' }
   if ($inc.Count -eq 0 -or $exc.Count -eq 0) { return $false }
   foreach ($i in $inc) { if ($exc -contains $i) { return $true } }
-  return $false }
+  return $false 
+}
 
-function New-TokenSet { param($Value)
+function New-TokenSet {
+  param($Value)
   $set = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
   if ($null -ne $Value) { foreach ($tok in (@($Value) -join "`n") -split '[,\n]') { $t = ($tok).Trim(); if ($t) { $null = $set.Add($t) } } }
-  return $set }
+  return $set 
+}
 
-function Protect-RecNote { param([string]$Html)
+function Protect-RecNote {
+  param([string]$Html)
   if ([string]::IsNullOrWhiteSpace($Html)) { return $Html }
   # The note markup we inject is fully script-controlled (policy detail cards); heavy encoding caused visible artifacts.
   # Strategy: strip executable/script/style content + dangerous inline handlers + javascript: URIs, otherwise pass through.
   $clean = $Html -replace '(?is)<script[^>]*>.*?</script>', '' -replace '(?is)<style[^>]*>.*?</style>', ''
   $clean = $clean -replace '(?i) on[a-z]+\s*=\s*"[^"]*"', '' -replace "(?i) on[a-z]+\s*=\s*'[^']*'", ''
   $clean = $clean -replace '(?i)href\s*=\s*"javascript:[^"]*"', 'href="#"' -replace "(?i)href\s*=\s*'javascript:[^']*'", "href='#'"
-  return $clean }
-# Duplicate normalization & hashing helper (content-based duplicate detection)
-function Get-NormalizedPolicyHash {
-  <#
-    .SYNOPSIS
-      Produce a stable SHA256 content hash for a policy export row.
-    .DESCRIPTION
-      Excludes volatile / non-semantic fields (Ids, timestamps, description, duplicate metadata, raw JSON placeholders)
-      to avoid false positives and focuses on policy semantics for duplicate detection.
-    .PARAMETER Policy
-      The policy export PSCustomObject row.
-    .OUTPUTS
-      [string] 64-char uppercase hex SHA256 hash.
-  #>
-  param([Parameter(Mandatory)]$Policy)
-  $norm = $Policy | Select-Object * -ExcludeProperty PolicyId, DateModified, CreatedDateTime, Description, 'Duplicate Matches', IsDuplicate, RawJson, ContentHash
-  $json = ($norm | ConvertTo-Json -Depth 8 -Compress)
-  $bytes = [Text.Encoding]::UTF8.GetBytes($json)
-  $sha = [System.Security.Cryptography.SHA256]::Create()
-  return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '')
+  return $clean 
 }
 #endregion Helper additions
 
 #region CA Check Functions (extracted from inline hashtable for testability)
-function Test-CA00 { param($PolicyCheck)
+function Test-CA00 {
+  param($PolicyCheck)
   $PolicyCheck.GrantControls.BuiltInControls -contains 'Block' -and
   $PolicyCheck.Conditions.ClientAppTypes -contains 'exchangeActiveSync' -and
   $PolicyCheck.Conditions.ClientAppTypes -contains 'other'
 }
-function Test-CA01 { param($PolicyCheck)
+function Test-CA01 {
+  param($PolicyCheck)
   $PolicyCheck.GrantControls.BuiltInControls -contains 'Mfa' -and
   $PolicyCheck.Conditions.Users.IncludeUsers -eq 'all' -and
   $PolicyCheck.Conditions.Applications.IncludeApplications -eq 'all'
 }
-function Test-CA02 { param($PolicyCheck)
+function Test-CA02 {
+  param($PolicyCheck)
   ($PolicyCheck.Conditions.Platforms.IncludePlatforms -contains 'android' -or
-   $PolicyCheck.Conditions.Platforms.IncludePlatforms -contains 'iOS' -or
-   $PolicyCheck.Conditions.Platforms.IncludePlatforms -contains 'windowsPhone') -and
+  $PolicyCheck.Conditions.Platforms.IncludePlatforms -contains 'iOS' -or
+  $PolicyCheck.Conditions.Platforms.IncludePlatforms -contains 'windowsPhone') -and
   ($PolicyCheck.GrantControls.BuiltInControls -contains 'approvedApplication' -or
-   $PolicyCheck.GrantControls.BuiltInControls -contains 'compliantApplication' -or
-   $PolicyCheck.GrantControls.BuiltInControls -contains 'compliantDevice')
+  $PolicyCheck.GrantControls.BuiltInControls -contains 'compliantApplication' -or
+  $PolicyCheck.GrantControls.BuiltInControls -contains 'compliantDevice')
 }
-function Test-CA03 { param($PolicyCheck)
+function Test-CA03 {
+  param($PolicyCheck)
   ($PolicyCheck.Conditions.Platforms.IncludePlatforms -contains 'windows' -or
-   $PolicyCheck.Conditions.Platforms.IncludePlatforms -contains 'macOS') -and
+  $PolicyCheck.Conditions.Platforms.IncludePlatforms -contains 'macOS') -and
   ($PolicyCheck.GrantControls.BuiltInControls -contains 'compliantDevice' -or
-   $PolicyCheck.GrantControls.BuiltInControls -contains 'domainJoinedDevice')
+  $PolicyCheck.GrantControls.BuiltInControls -contains 'domainJoinedDevice')
 }
-function Test-CA06 { param($PolicyCheck)
-  (Test-OverlapIncludeExclude $PolicyCheck.Conditions.Users.IncludeUsers      $PolicyCheck.Conditions.Users.ExcludeUsers) -or
-  (Test-OverlapIncludeExclude $PolicyCheck.Conditions.Users.IncludeGroups     $PolicyCheck.Conditions.Users.ExcludeGroups) -or
-  (Test-OverlapIncludeExclude $PolicyCheck.Conditions.Users.IncludeRoles      $PolicyCheck.Conditions.Users.ExcludeRoles) -or
+function Test-CA06 {
+  param($PolicyCheck)
+  (Test-OverlapIncludeExclude $PolicyCheck.Conditions.Users.IncludeUsers $PolicyCheck.Conditions.Users.ExcludeUsers) -or
+  (Test-OverlapIncludeExclude $PolicyCheck.Conditions.Users.IncludeGroups $PolicyCheck.Conditions.Users.ExcludeGroups) -or
+  (Test-OverlapIncludeExclude $PolicyCheck.Conditions.Users.IncludeRoles $PolicyCheck.Conditions.Users.ExcludeRoles) -or
   (Test-OverlapIncludeExclude $PolicyCheck.Conditions.Platforms.IncludePlatforms $PolicyCheck.Conditions.Platforms.ExcludePlatforms) -or
   (Test-OverlapIncludeExclude $PolicyCheck.Conditions.Locations.IncludeLocations $PolicyCheck.Conditions.Locations.ExcludeLocations) -or
   (Test-OverlapIncludeExclude $PolicyCheck.Conditions.Applications.IncludeApplications $PolicyCheck.Conditions.Applications.ExcludeApplications)
 }
 
-function Test-CA07 { param($PolicyCheck)
+function Test-CA07 {
+  param($PolicyCheck)
   ([string]::IsNullOrWhiteSpace($PolicyCheck.Conditions.Users.IncludeUsers) -or $PolicyCheck.Conditions.Users.IncludeUsers.Count -eq 0 -or $PolicyCheck.Conditions.Users.IncludeUsers -eq 'None') -and
   (([string]::IsNullOrWhiteSpace($PolicyCheck.Conditions.Users.IncludeGroups)) -or $PolicyCheck.Conditions.Users.IncludeGroups.Count -eq 0) -and
   (([string]::IsNullOrWhiteSpace($PolicyCheck.Conditions.Users.IncludeRoles)) -or $PolicyCheck.Conditions.Users.IncludeRoles.Count -eq 0) -and
   ($null -eq $PolicyCheck.Conditions.Users.IncludeGuestsOrExternalUsers.GuestOrExternalUserTypes)
 }
 
-function Test-CA08 { param($PolicyCheck)
+function Test-CA08 {
+  param($PolicyCheck)
   $PolicyCheck.Conditions.Users.IncludeUsers -ne 'None' -and
   $null -ne $PolicyCheck.Conditions.Users.IncludeUsers -and
   $PolicyCheck.Conditions.Users.IncludeUsers -ne 'All' -and
   $PolicyCheck.Conditions.Users.IncludeUsers -ne 'GuestsOrExternalUsers'
 }
-function Test-CA09 { param($PolicyCheck)
+function Test-CA09 {
+  param($PolicyCheck)
   ($null -ne $PolicyCheck.Conditions.SignInRiskLevels) -or
   ($null -ne $PolicyCheck.Conditions.UserRiskLevels)
 }
-function Test-CA10 { param($PolicyCheck)
+function Test-CA10 {
+  param($PolicyCheck)
   $PolicyCheck.Conditions.AdditionalProperties.authenticationFlows.Values -split ',' -contains 'deviceCodeFlow' -and
   $PolicyCheck.grantcontrols.BuiltInControls -contains 'Block'
 }
-function Test-CA11 { param($PolicyCheck)
+function Test-CA11 {
+  param($PolicyCheck)
   ($PolicyCheck.Conditions.Applications.IncludeUserActions -contains 'urn:user:registerdevice') -and
   ($PolicyCheck.GrantControls.BuiltInControls -contains 'Mfa')
 }
-function Test-CA12 { param($PolicyCheck)
+function Test-CA12 {
+  param($PolicyCheck)
   ($PolicyCheck.GrantControls.BuiltInControls -contains 'Block') -and
   ($PolicyCheck.Conditions.Platforms.IncludePlatforms -contains 'all') -and
   ($PolicyCheck.Conditions.Platforms.ExcludePlatforms.Count -gt 0)
@@ -877,7 +912,8 @@ if (-not $script:OfflineMode) {
   # Ensure required modules are present before attempting to connect
   Initialize-GraphModule
   Connect-GraphContext
-} else {
+}
+else {
   Write-Info 'Offline mode detected: skipping module initialization and Graph connection.'
 }
 
@@ -891,7 +927,8 @@ if ($OutputPath) {
     }
     $ExportLocation = (Resolve-Path -LiteralPath $OutputPath).Path
     Write-Info "Using custom output path: $ExportLocation"
-  } catch {
+  }
+  catch {
     Write-Warn ("Failed to set custom OutputPath '{0}': {1}" -f $OutputPath, $_.Exception.Message)
   }
 }
@@ -908,7 +945,8 @@ if ($RawInputFile) {
   try {
     $rawText = Get-Content -LiteralPath $RawInputFile -Raw -ErrorAction Stop
     $allPolicies = $rawText | ConvertFrom-Json -ErrorAction Stop
-  } catch {
+  }
+  catch {
     Write-Err ("Failed to read or parse RawInputFile '{0}': {1}" -f $RawInputFile, $_.Exception.Message)
     exit 1
   }
@@ -920,11 +958,13 @@ if ($RawInputFile) {
   $Date = (Get-Date).ToString('u')
   if ($PolicyID) {
     $CAPolicy = @($allPolicies | Where-Object { $_.id -eq $PolicyID })
-  } else {
+  }
+  else {
     $CAPolicy = @($allPolicies)
   }
   Write-Info "Loaded $($CAPolicy.Count) policies from raw file"
-} else {
+}
+else {
   Write-Info 'Retrieving tenant information'
   $TenantName = (Get-MgOrganization -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty DisplayName)
   if (-not $TenantName) { $TenantName = 'UnknownTenant' }
@@ -932,7 +972,8 @@ if ($RawInputFile) {
   Write-Info 'Retrieving Conditional Access policies'
   try {
     $allPolicies = Get-MgIdentityConditionalAccessPolicy -All
-  } catch {
+  }
+  catch {
     Write-Err ('Failed to retrieve policies: {0}' -f $_.Exception.Message)
     Write-Err 'Cannot continue without policies. Exiting.'
     exit 1
@@ -943,7 +984,8 @@ if ($RawInputFile) {
       Write-Err "Policy with ID '$PolicyID' not found. Exiting."
       exit 1
     }
-  } else {
+  }
+  else {
     $CAPolicy = $allPolicies
   }
   if (-not $CAPolicy -or $CAPolicy.Count -eq 0) {
@@ -1003,7 +1045,8 @@ $UserMap = @{}; $GroupMap = @{}; $RoleMap = @{}; $AppMap = @{}; $LocMap = @{}; $
 
 if ($script:OfflineMode) {
   Write-Info 'Offline mode: skipping user/group/role/app/location/TOU Graph enrichment.'
-} else {
+}
+else {
   foreach ($id in $userIds) {
     if ($id -and ($id -match '^[0-9a-fA-F\-]{36}$')) {
       $obj = Invoke-SafeGet { Get-MgUser -UserId $id -Property Id, DisplayName }
@@ -1016,22 +1059,22 @@ if ($script:OfflineMode) {
 
   $roleLookup = @{}
   $commonRoleTemplates = @{
-    '62e90394-69f5-4237-9190-012177145e10' = 'Global Administrator'
-    'f28a1f50-f6e7-4571-818b-6a12f2af6b6c' = 'SharePoint Administrator'
-    '29232cdf-9323-42fd-ade2-1d097af3e4de' = 'Exchange Administrator'
-    'b1be1c3e-b65d-4f19-8427-f6fa0d97feb9' = 'Conditional Access Administrator'
-    '729827e3-9c14-49f7-bb1b-9608f156bbb8' = 'Helpdesk Administrator'
-    'b0f54661-2d74-4c50-afa3-1ec803f12efe' = 'Billing Administrator'
-    'fe930be7-5e62-47db-91af-98c3a49a38b1' = 'User Administrator'
-    'c4e39bd9-1100-46d3-8c65-fb160da0071f' = 'Authentication Administrator'
     '9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3' = 'Application Administrator'
+    'c4e39bd9-1100-46d3-8c65-fb160da0071f' = 'Authentication Administrator'
+    'e3973bdf-4987-49ae-837a-ba8e231c7286' = 'Azure DevOps Administrator'
+    'b0f54661-2d74-4c50-afa3-1ec803f12efe' = 'Billing Administrator'
     '158c047a-c907-4556-b7ef-446551a6b5f7' = 'Cloud Application Administrator'
+    'b1be1c3e-b65d-4f19-8427-f6fa0d97feb9' = 'Conditional Access Administrator'
+    '29232cdf-9323-42fd-ade2-1d097af3e4de' = 'Exchange Administrator'
+    '62e90394-69f5-4237-9190-012177145e10' = 'Global Administrator'
+    '729827e3-9c14-49f7-bb1b-9608f156bbb8' = 'Helpdesk Administrator'
     '966707d0-3269-4727-9be2-8c3a10f19b9d' = 'Password Administrator'
     '7be44c8a-adaf-4e2a-84d6-ab2649e08a13' = 'Privileged Authentication Administrator'
     'e8611ab8-c189-46e8-94e1-60213ab1f814' = 'Privileged Role Administrator'
     '194ae4cb-b126-40b2-bd5b-6091b380977d' = 'Security Administrator'
     '5d6b6bb7-de71-4623-b4af-96380a352509' = 'Security Reader'
-    'e3973bdf-4987-49ae-837a-ba8e231c7286' = 'Azure DevOps Administrator'
+    'f28a1f50-f6e7-4571-818b-6a12f2af6b6c' = 'SharePoint Administrator'
+    'fe930be7-5e62-47db-91af-98c3a49a38b1' = 'User Administrator'
   }
 
   $dirRoles = Invoke-SafeGet { Get-MgDirectoryRole -All }
@@ -1040,7 +1083,8 @@ if ($script:OfflineMode) {
       if ($r.id -and -not $roleLookup.ContainsKey($r.id)) { $roleLookup[$r.id] = $r.displayName }
       if ($r.roleTemplateId -and -not $roleLookup.ContainsKey($r.roleTemplateId)) { $roleLookup[$r.roleTemplateId] = $r.displayName }
     }
-  } else {
+  }
+  else {
     foreach ($kv in $commonRoleTemplates.GetEnumerator()) { $roleLookup[$kv.Key] = $kv.Value }
   }
 
@@ -1050,14 +1094,16 @@ if ($script:OfflineMode) {
       if ($rd.Id -and -not $roleLookup.ContainsKey($rd.Id)) { $roleLookup[$rd.Id] = $rd.DisplayName }
       if ($rd.TemplateId -and -not $roleLookup.ContainsKey($rd.TemplateId)) { $roleLookup[$rd.TemplateId] = $rd.DisplayName }
     }
-  } else {
+  }
+  else {
     foreach ($kv in $commonRoleTemplates.GetEnumerator()) { if (-not $roleLookup.ContainsKey($kv.Key)) { $roleLookup[$kv.Key] = $kv.Value } }
   }
 
   foreach ($id in $roleIds) {
     if ($roleLookup.ContainsKey($id)) {
       $RoleMap[$id] = $roleLookup[$id]
-    } else {
+    }
+    else {
       $obj = Invoke-SafeGet { Get-MgDirectoryRole -DirectoryRoleId $id -Property Id, DisplayName }
       if ($obj) { $RoleMap[$id] = $obj.DisplayName } elseif ($commonRoleTemplates.ContainsKey($id)) { $RoleMap[$id] = $commonRoleTemplates[$id] }
     }
@@ -1087,7 +1133,8 @@ $CAExport = @()
 foreach ($Policy in $CAPolicy) {
   $DateModified = if ($Policy.modifiedDateTime) {
     $Policy.modifiedDateTime 
-  } else {
+  }
+  else {
     $Policy.createdDateTime 
   }
   $InclPlat = $Policy.conditions.platforms.includePlatforms
@@ -1098,12 +1145,14 @@ foreach ($Policy in $CAPolicy) {
   $authenticationFlowsString = ( $Policy.conditions.additionalProperties.authenticationFlows.values -join ', ' )
   $InclLocation = $Policy.conditions.locations.includeLocations | ForEach-Object { if ($_ -and (Test-IsGuid $_) -and $LocMap.ContainsKey($_)) {
       $LocMap[$_] 
-    } else {
+    }
+    else {
       $_ 
     } }
   $ExclLocation = $Policy.conditions.locations.excludeLocations | ForEach-Object { if ($_ -and (Test-IsGuid $_) -and $LocMap.ContainsKey($_)) {
       $LocMap[$_] 
-    } else {
+    }
+    else {
       $_ 
     } }
   $IncludeUG = @()
@@ -1121,125 +1170,81 @@ foreach ($Policy in $CAPolicy) {
     $ExcludeUG += $Policy.conditions.users.excludeGuestsOrExternalUsers.guestOrExternalUserTypes 
   }
 
-  $rawOriginal = if ($RawPolicyIndex.ContainsKey($Policy.id)) {
-    $RawPolicyIndex[$Policy.id] 
-  } else {
-    $null 
-  }
-
   $CAExport += [PSCustomObject][ordered]@{
     Name                                = $Policy.displayName
     'Recommended Name'                  = Get-RecommendedPolicyName -Policy $Policy
-    NameMismatch                        = $false
     PolicyId                            = $Policy.id
     Status                              = Format-PolicyStatus -Status $Policy.state
     Modified                            = $DateModified
-    Users                               = ''
+    Created                             = $Policy.createdDateTime
+    Description                         = $Policy.description
     'Included Users'                    = ($IncludeUG -join ", `r`n")
     'Excluded Users'                    = ($ExcludeUG -join ", `r`n")
-    UsersIncludeIds                     = if ($rawOriginal) {
-      ($rawOriginal.conditions.users.includeUsers -join ", `r`n") 
-    } else {
-      $null 
-    }
-    UsersExcludeIds                     = if ($rawOriginal) {
-      ($rawOriginal.conditions.users.excludeUsers -join ", `r`n") 
-    } else {
-      $null 
-    }
-    RolesIncludeIds                     = if ($rawOriginal) {
-      ($rawOriginal.conditions.users.includeRoles -join ", `r`n") 
-    } else {
-      $null 
-    }
-    RolesExcludeIds                     = if ($rawOriginal) {
-      ($rawOriginal.conditions.users.excludeRoles -join ", `r`n") 
-    } else {
-      $null 
-    }
-    'Cloud apps or actions'             = ''
     'Included Applications'             = ($Policy.conditions.applications.includeApplications -join ", `r`n")
     'Excluded Applications'             = ($Policy.conditions.applications.excludeApplications -join ", `r`n")
-    ApplicationsIncludedIds             = if ($rawOriginal) {
-      ($rawOriginal.conditions.applications.includeApplications -join ", `r`n") 
-    } else {
-      $null 
-    }
-    ApplicationsExcludedIds             = if ($rawOriginal) {
-      ($rawOriginal.conditions.applications.excludeApplications -join ", `r`n") 
-    } else {
-      $null 
-    }
-    'User Actions'                      = ($Policy.conditions.applications.includeUserActions -join ", `r`n")
+    'User Actions'                      = (($Policy.conditions.applications.includeUserActions | ForEach-Object { 
+                                              if ($_ -eq 'urn:user:registersecurityinfo') { 'Register Security Info' }
+                                              elseif ($_ -eq 'urn:user:registerdevice') { 'Register Device' }
+                                              else { $_ }
+                                            }) -join ", `r`n")
     'Auth Context'                      = ($Policy.conditions.applications.includeAuthenticationContextClassReferences -join ", `r`n")
-    Conditions                          = ''
     'User Risk'                         = ($Policy.conditions.userRiskLevels -join ", `r`n")
     'SignIn Risk'                       = ($Policy.conditions.signInRiskLevels -join ", `r`n")
-    'Platforms Include'                 = ($InclPlat -join ", `r`n")
-    'Platforms Exclude'                 = ($ExclPlat -join ", `r`n")
-    'Locations Included'                = ($InclLocation -join ", `r`n")
-    'Locations Excluded'                = ($ExclLocation -join ", `r`n")
-    LocationsIncludedIds                = if ($rawOriginal) {
-      ($rawOriginal.conditions.locations.includeLocations -join ", `r`n") 
-    } else {
-      $null 
-    }
-    LocationsExcludedIds                = if ($rawOriginal) {
-      ($rawOriginal.conditions.locations.excludeLocations -join ", `r`n") 
-    } else {
-      $null 
-    }
+    'Platforms Included'                = ($InclPlat -join ", `r`n")
+    'Platforms Excluded'                = ($ExclPlat -join ", `r`n")
+    'Included Locations'                = ($InclLocation -join ", `r`n")
+    'Excluded Locations'                = ($ExclLocation -join ", `r`n")
     'Client Apps'                       = ($Policy.conditions.clientAppTypes -join ", `r`n")
-    'Devices Included'                  = ($InclDev -join ", `r`n")
-    'Devices Excluded'                  = ($ExclDev -join ", `r`n")
+    'Included Devices'                  = ($InclDev -join ", `r`n")
+    'Excluded Devices'                  = ($ExclDev -join ", `r`n")
     'Device Filters'                    = ($devFilters -join ", `r`n")
     'Authentication Flows'              = $authenticationFlowsString
-    'Grant Controls'                    = ''
     'Block'                             = if ($Policy.grantControls.builtInControls -contains 'Block') {
       'True' 
-    } else {
+    }
+    else {
       '' 
     }
     'Require MFA'                       = if ($Policy.grantControls.builtInControls -contains 'Mfa') {
       'True' 
-    } else {
+    }
+    else {
       '' 
     }
     'Authentication Strength MFA'       = $Policy.grantControls.authenticationStrength.displayName
     'Compliant Device'                  = if ($Policy.grantControls.builtInControls -contains 'CompliantDevice') {
       'True' 
-    } else {
+    }
+    else {
       '' 
     }
     'Domain Joined Device'              = if ($Policy.grantControls.builtInControls -contains 'DomainJoinedDevice') {
       'True' 
-    } else {
+    }
+    else {
       '' 
     }
     'Compliant Application'             = if ($Policy.grantControls.builtInControls -contains 'CompliantApplication') {
       'True' 
-    } else {
+    }
+    else {
       '' 
     }
     'Approved Application'              = if ($Policy.grantControls.builtInControls -contains 'ApprovedApplication') {
       'True' 
-    } else {
+    }
+    else {
       '' 
     }
     'Password Change'                   = if ($Policy.grantControls.builtInControls -contains 'PasswordChange') {
       'True' 
-    } else {
+    }
+    else {
       '' 
     }
     'Terms Of Use'                      = ((Convert-IdListToName $Policy.grantControls.termsOfUse $TouMap) -join ", `r`n")
-    'TermsOfUseIds'                     = if ($rawOriginal) {
-      ($rawOriginal.grantControls.termsOfUse -join ", `r`n") 
-    } else {
-      $null 
-    }
     'Custom Controls'                   = ($Policy.grantControls.customAuthenticationFactors -join ", `r`n")
     'Grant Operator'                    = $Policy.grantControls.operator
-    'Session Controls'                  = ''
     'Application Enforced Restrictions' = $Policy.sessionControls.applicationEnforcedRestrictions.isEnabled
     'Cloud App Security'                = $Policy.sessionControls.cloudAppSecurity.isEnabled
     'Sign In Frequency'                 = if ($Policy.sessionControls.signInFrequency.value -and $Policy.sessionControls.signInFrequency.type) {
@@ -1249,53 +1254,8 @@ foreach ($Policy in $CAPolicy) {
     'Continuous Access Evaluation'      = $Policy.sessionControls.continuousAccessEvaluation.mode
     'Resilient Defaults'                = $Policy.sessionControls.disableResilienceDefaults
     'Secure Sign In Session'            = $Policy.sessionControls.additionalProperties.secureSignInSession.values
-    Created                             = $Policy.createdDateTime
-    Description                         = $Policy.description
     RawJson                             = ''
-    IsDuplicate                         = $false
-    'Duplicate Matches'                 = ''
-    ContentHash                         = ''
   }
-}
-
-# Duplicate detection (content-based). Compute normalized JSON hash per policy and mark duplicates.
-if ($CAExport.Count -gt 1) {
-  $hashGroups = @{}
-  foreach ($p in $CAExport) {
-    $hash = Get-NormalizedPolicyHash -Policy $p
-    $p.ContentHash = $hash
-    if (-not $hashGroups.ContainsKey($hash)) {
-      $hashGroups[$hash] = @() 
-    }
-    $hashGroups[$hash] += $p
-  }
-  foreach ($kv in $hashGroups.GetEnumerator()) {
-    if ($kv.Value.Count -gt 1) {
-      foreach ($p in $kv.Value) {
-        $p.IsDuplicate = $true
-        $p.'Duplicate Matches' = ($kv.Value | Where-Object { $_.Name -ne $p.Name } | ForEach-Object { $_.Name }) -join ', '
-      }
-    }
-  }
-}
-
-# Name / Block mismatch analysis
-foreach ($p in $CAExport) {
-  $n = [string]$p.Name
-  if ([string]::IsNullOrWhiteSpace($n)) {
-    continue 
-  }
-  $lower = $n.ToLowerInvariant()
-  $hasAllow = ($lower -match '(?<![a-z])(allow|allowed|allowlist|permit|permitted)(?![a-z])')
-  $hasBlock = ($lower -match '(?<![a-z])(block|blocked|deny|denied|prevent)(?![a-z])')
-  $doesBlock = ($p.'Block' -eq 'True')
-  $mismatch = $false
-  if ($hasAllow -and $doesBlock) {
-    $mismatch = $true 
-  } elseif ($hasBlock -and -not $doesBlock) {
-    $mismatch = $true 
-  }
-  $p.NameMismatch = $mismatch
 }
 
 # Map external switch parameters to internal export control flags for backward compatibility / clarity
@@ -1391,19 +1351,19 @@ if (-not $NoRecommendations) {
 #>
   # Inline recommendations (moved back from external PSD1)
   $recommendations = @(
-    [recommendation]::new('CA-00','Legacy Authentication','Legacy Authentication is blocked or minimized, targeting Legacy Authentication protocols.','Review and update policies to restrict or block Legacy Authentication protocols to ensure security.','Legacy Authentication protocols are outdated and less secure. It is recommended to block or minimize their usage to enhance the security of your environment.',@{ 'Legacy Authentication Overview' = 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-block-legacy-authentication' },$false,$true),
-    [recommendation]::new('CA-01','MFA Policy targets All users Group and All Cloud Apps','There is at least one policy that targets all users and cloud apps.','Review and update MFA policies to ensure they target all users and cloud apps, including any necessary exclusions.','Multi-factor Authentication (MFA) should apply to all users and cloud apps as a baseline for security. Policies should include the necessary exclusions if required but should primarily target all users and apps for maximum security.',@{ 'The Challenge with Targeted Architecture' = 'https://learn.microsoft.com/en-us/azure/architecture/guide/security/conditional-access-architecture#:~:text=The%20challenge%20with%20the,that%20number%20isn%27t%20supported.' },$false,$true),
-    [recommendation]::new('CA-02','Mobile Device Policy requires MDM or MAM','There is at least one policy that requires MDM or MAM for mobile devices.','Consider adding policies to check for device management, either through MDM or MAM, to ensure secure mobile access.','Mobile Device Management (MDM) or Mobile Application Management (MAM) should be enforced to ensure that mobile devices accessing organizational data are properly managed and secure. Policies should include requirements for MDM or MAM to increase security for mobile devices.',@{ 'MAM Overview'='https://learn.microsoft.com/en-us/mem/intune/apps/app-management#mobile-application-management-mam-basics'; 'Protect Data on personally owned devices'='https://smbtothecloud.com/protecting-company-data-on-personally-owned-devices/' },$false,$true),
-    [recommendation]::new('CA-03','Require Hybrid Join or Intune Compliance on Windows or Mac','There is at least one policy that requires Hybrid Join or Intune Compliance for Windows or Mac devices.','Consider adding policies to ensure that Windows or Mac devices are either Hybrid Joined or compliant with Intune to enhance security.','Hybrid Join or Intune Compliance should be enforced to ensure that Windows or Mac devices accessing organizational data are properly managed and secure. Policies should include requirements for Hybrid Join or Intune Compliance to increase security for these devices.',@{ 'Hybrid Join Overview'='https://learn.microsoft.com/en-us/azure/active-directory/devices/hybrid-azuread-join-plan'; 'Intune Compliance Overview'='https://learn.microsoft.com/en-us/mem/intune/protect/compliance-policy-create-windows' },$false,$true),
-    [recommendation]::new('CA-04','Require MFA for Admins','There is at least one policy that requires Multi-Factor Authentication (MFA) for administrators.','Consider adding policies to ensure that administrators are required to use Multi-Factor Authentication (MFA) to enhance security.','Multi-Factor Authentication (MFA) should be enforced for administrators to ensure that access to critical systems and data is secure. Policies should include requirements for MFA to increase security for administrative accounts.',@{ 'MFA Overview'='https://learn.microsoft.com/en-us/azure/active-directory/authentication/concept-mfa-howitworks'; 'MFA for Admins'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-old-require-mfa-admin' },$false,$true),
-    [recommendation]::new('CA-05','Require Phish-Resistant MFA for Admins','There is at least one policy that requires phish-resistant Multi-Factor Authentication (MFA) for administrators.','Consider adding policies to ensure that administrators are required to use phish-resistant Multi-Factor Authentication (MFA) to enhance security.','Phish-resistant Multi-Factor Authentication (MFA) should be enforced for administrators to ensure secure access.',@{ 'MSFT Authentication Strengths'='https://learn.microsoft.com/en-us/entra/identity/authentication/concept-authentication-strengths'; 'Phish-Resistant MFA for Admins'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-admin-phish-resistant-mfa' },$false,$true),
-    [recommendation]::new('CA-06','Policy Excludes Entities That Are Also Included','There is at least one policy that excludes the same entities it includes, resulting in no effective condition being checked.','Review and update policies to ensure that they do not exclude the same entities they include.','Policies should include and exclude distinct sets of entities to ensure conditions are effectively checked.',@{ 'Policy Configuration Best Practices'='https://learn.microsoft.com/en-us/azure/active-directory/conditional-access/best-practices' },$true,$false),
-    [recommendation]::new('CA-07','No Users Targeted in Policy','All policies are scoped to users, groups, or roles.','There is at least one policy that does not target any users. Review and update policies to ensure that they target specific users, groups, or roles to be effective.','Policies should target specific users, groups, or roles to ensure they apply correctly.',@{ 'Policy Configuration Best Practices'='https://learn.microsoft.com/en-us/azure/active-directory/conditional-access/best-practices' },$true,$false),
-    [recommendation]::new('CA-08','Direct User Assignment','There are no direct user assignments in the policy.','Review and update policies to avoid direct user assignments; prefer groups.','Direct user assignments reduce scalability; use exclusion/target groups instead.',@{},$true,$false),
-    [recommendation]::new('CA-09','Implement Risk-Based Policy','There is at least 1 policy that addresses risk-based conditional access.','Consider implementing risk-based conditional access policies for dynamic controls.','Risk-based policies assess risk of sign-ins/users and apply appropriate controls.',@{ 'Risk-Based Conditional Access Overview'='https://learn.microsoft.com/en-us/entra/id-protection/howto-identity-protection-configure-risk-policies'; 'Require MFA for Risky Sign-in'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-risk-based-sign-in#enable-with-conditional-access-policy'; 'Require Passsword Change for Risky User'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-risk-based-user#enable-with-conditional-access-policy' },$false,$true),
-    [recommendation]::new('CA-10','Block Device Code Flow','There is at least 1 policy that blocks device code flow.','Consider implementing a policy to block device code flow.','Blocking device code flow prevents potential abuse of device code auth.',@{ 'Block Device Code Flow Overview'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-authentication-flows#device-code-flow' },$false,$true),
-    [recommendation]::new('CA-11','Require MFA to Enroll a Device in Intune','There is at least 1 policy that requires Multi-Factor Authentication (MFA) to enroll a device in Intune.','Consider implementing a policy to require MFA for Intune enrollment.','MFA for enrollment ensures only authorized users can enroll devices.',@{ 'MFA for Intune Enrollment Overview'='https://learn.microsoft.com/en-us/mem/intune/enrollment/multi-factor-authentication' },$false,$true),
-    [recommendation]::new('CA-12','Block Unknown/Unsupported Devices','There is no policy that blocks unknown or unsupported devices.','Implement a policy to block unknown or unsupported devices.','Blocking unknown or unsupported devices prevents access from non-compliant endpoints.',@{ 'Block Unknown/Unsupported Devices Overview'='https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-all-users-device-unknown-unsupported' },$false,$true)
+    [recommendation]::new('CA-00', 'Legacy Authentication', 'Legacy Authentication is blocked or minimized, targeting Legacy Authentication protocols.', 'Review and update policies to restrict or block Legacy Authentication protocols to ensure security.', 'Legacy Authentication protocols are outdated and less secure. It is recommended to block or minimize their usage to enhance the security of your environment.', @{ 'Legacy Authentication Overview' = 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-block-legacy-authentication' }, $false, $true),
+    [recommendation]::new('CA-01', 'MFA Policy targets All users Group and All Cloud Apps', 'There is at least one policy that targets all users and cloud apps.', 'Review and update MFA policies to ensure they target all users and cloud apps, including any necessary exclusions.', 'Multi-factor Authentication (MFA) should apply to all users and cloud apps as a baseline for security. Policies should include the necessary exclusions if required but should primarily target all users and apps for maximum security.', @{ 'The Challenge with Targeted Architecture' = 'https://learn.microsoft.com/en-us/azure/architecture/guide/security/conditional-access-architecture#:~:text=The%20challenge%20with%20the,that%20number%20isn%27t%20supported.' }, $false, $true),
+    [recommendation]::new('CA-02', 'Mobile Device Policy requires MDM or MAM', 'There is at least one policy that requires MDM or MAM for mobile devices.', 'Consider adding policies to check for device management, either through MDM or MAM, to ensure secure mobile access.', 'Mobile Device Management (MDM) or Mobile Application Management (MAM) should be enforced to ensure that mobile devices accessing organizational data are properly managed and secure. Policies should include requirements for MDM or MAM to increase security for mobile devices.', @{ 'MAM Overview' = 'https://learn.microsoft.com/en-us/mem/intune/apps/app-management#mobile-application-management-mam-basics'; 'Protect Data on personally owned devices' = 'https://smbtothecloud.com/protecting-company-data-on-personally-owned-devices/' }, $false, $true),
+    [recommendation]::new('CA-03', 'Require Hybrid Join or Intune Compliance on Windows or Mac', 'There is at least one policy that requires Hybrid Join or Intune Compliance for Windows or Mac devices.', 'Consider adding policies to ensure that Windows or Mac devices are either Hybrid Joined or compliant with Intune to enhance security.', 'Hybrid Join or Intune Compliance should be enforced to ensure that Windows or Mac devices accessing organizational data are properly managed and secure. Policies should include requirements for Hybrid Join or Intune Compliance to increase security for these devices.', @{ 'Hybrid Join Overview' = 'https://learn.microsoft.com/en-us/azure/active-directory/devices/hybrid-azuread-join-plan'; 'Intune Compliance Overview' = 'https://learn.microsoft.com/en-us/mem/intune/protect/compliance-policy-create-windows' }, $false, $true),
+    [recommendation]::new('CA-04', 'Require MFA for Admins', 'There is at least one policy that requires Multi-Factor Authentication (MFA) for administrators.', 'Consider adding policies to ensure that administrators are required to use Multi-Factor Authentication (MFA) to enhance security.', 'Multi-Factor Authentication (MFA) should be enforced for administrators to ensure that access to critical systems and data is secure. Policies should include requirements for MFA to increase security for administrative accounts.', @{ 'MFA Overview' = 'https://learn.microsoft.com/en-us/azure/active-directory/authentication/concept-mfa-howitworks'; 'MFA for Admins' = 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-old-require-mfa-admin' }, $false, $true),
+    [recommendation]::new('CA-05', 'Require Phish-Resistant MFA for Admins', 'There is at least one policy that requires phish-resistant Multi-Factor Authentication (MFA) for administrators.', 'Consider adding policies to ensure that administrators are required to use phish-resistant Multi-Factor Authentication (MFA) to enhance security.', 'Phish-resistant Multi-Factor Authentication (MFA) should be enforced for administrators to ensure secure access.', @{ 'MSFT Authentication Strengths' = 'https://learn.microsoft.com/en-us/entra/identity/authentication/concept-authentication-strengths'; 'Phish-Resistant MFA for Admins' = 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-admin-phish-resistant-mfa' }, $false, $true),
+    [recommendation]::new('CA-06', 'Policy Excludes Entities That Are Also Included', 'There is at least one policy that excludes the same entities it includes, resulting in no effective condition being checked.', 'Review and update policies to ensure that they do not exclude the same entities they include.', 'Policies should include and exclude distinct sets of entities to ensure conditions are effectively checked.', @{ 'Policy Configuration Best Practices' = 'https://learn.microsoft.com/en-us/azure/active-directory/conditional-access/best-practices' }, $true, $false),
+    [recommendation]::new('CA-07', 'No Users Targeted in Policy', 'All policies are scoped to users, groups, or roles.', 'There is at least one policy that does not target any users. Review and update policies to ensure that they target specific users, groups, or roles to be effective.', 'Policies should target specific users, groups, or roles to ensure they apply correctly.', @{ 'Policy Configuration Best Practices' = 'https://learn.microsoft.com/en-us/azure/active-directory/conditional-access/best-practices' }, $true, $false),
+    [recommendation]::new('CA-08', 'Direct User Assignment', 'There are no direct user assignments in the policy.', 'Review and update policies to avoid direct user assignments; prefer groups.', 'Direct user assignments reduce scalability; use exclusion/target groups instead.', @{}, $true, $false),
+    [recommendation]::new('CA-09', 'Implement Risk-Based Policy', 'There is at least 1 policy that addresses risk-based conditional access.', 'Consider implementing risk-based conditional access policies for dynamic controls.', 'Risk-based policies assess risk of sign-ins/users and apply appropriate controls.', @{ 'Risk-Based Conditional Access Overview' = 'https://learn.microsoft.com/en-us/entra/id-protection/howto-identity-protection-configure-risk-policies'; 'Require MFA for Risky Sign-in' = 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-risk-based-sign-in#enable-with-conditional-access-policy'; 'Require Passsword Change for Risky User' = 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-risk-based-user#enable-with-conditional-access-policy' }, $false, $true),
+    [recommendation]::new('CA-10', 'Block Device Code Flow', 'There is at least 1 policy that blocks device code flow.', 'Consider implementing a policy to block device code flow.', 'Blocking device code flow prevents potential abuse of device code auth.', @{ 'Block Device Code Flow Overview' = 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-authentication-flows#device-code-flow' }, $false, $true),
+    [recommendation]::new('CA-11', 'Require MFA to Enroll a Device in Intune', 'There is at least 1 policy that requires Multi-Factor Authentication (MFA) to enroll a device in Intune.', 'Consider implementing a policy to require MFA for Intune enrollment.', 'MFA for enrollment ensures only authorized users can enroll devices.', @{ 'MFA for Intune Enrollment Overview' = 'https://learn.microsoft.com/en-us/mem/intune/enrollment/multi-factor-authentication' }, $false, $true),
+    [recommendation]::new('CA-12', 'Block Unknown/Unsupported Devices', 'There is no policy that blocks unknown or unsupported devices.', 'Implement a policy to block unknown or unsupported devices.', 'Blocking unknown or unsupported devices prevents access from non-compliant endpoints.', @{ 'Block Unknown/Unsupported Devices Overview' = 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-all-users-device-unknown-unsupported' }, $false, $true)
   )
 
   function Test-PolicyStatus {
@@ -1421,28 +1381,35 @@ if (-not $NoRecommendations) {
       # Recommendation passed. Differentiate enabled vs reporting-only vs disabled.
       if ($PolicyCheck.state -eq 'enabledForReportingButNotEnforced') {
         $Status1 = 'policy-item success success-report'
-      } elseif ($PolicyCheck.state -eq 'enabled') {
+      }
+      elseif ($PolicyCheck.state -eq 'enabled') {
         $Status1 = 'policy-item success success-enabled'
-      } elseif ($PolicyCheck.state -eq 'disabled') {
+      }
+      elseif ($PolicyCheck.state -eq 'disabled') {
         $Status1 = 'policy-item success success-disabled'
-      } else {
+      }
+      else {
         # Other states considered success but generic (retain base success styling)
         $Status1 = 'policy-item success'
       }
       $Status2 = 'status-icon-large success'
       $Status3 = '✔'
-    } else {
+    }
+    else {
       # Recommendation failed (policy needs attention). Differentiate enabled vs reporting-only vs disabled policies.
       if ($PolicyCheck.state -eq 'enabledForReportingButNotEnforced') {
         # Reporting-only: distinct background per requirements
         $Status1 = 'policy-item warning warning-report'
-      } elseif ($PolicyCheck.state -eq 'enabled') {
+      }
+      elseif ($PolicyCheck.state -eq 'enabled') {
         # Enabled & failing: keep existing warning style (optional class for clarity)
         $Status1 = 'policy-item warning warning-enabled'
-      } elseif ($PolicyCheck.state -eq 'disabled') {
+      }
+      elseif ($PolicyCheck.state -eq 'disabled') {
         # Disabled & failing: distinct warning-disabled variant
         $Status1 = 'policy-item warning warning-disabled'
-      } else {
+      }
+      else {
         # Generic fallback (other states)
         $Status1 = 'policy-item warning'
       }
@@ -1566,13 +1533,15 @@ if (-not $NoRecommendations) {
 
 $pivot = @()
 $pivotFields = @(
-  'Recommended Name', 'Status', 'Modified', 'Created', 'Description',
-  'Included Users', 'Excluded Users', 'RolesIncludeIds', 'RolesExcludeIds',
-  'Included Applications', 'Excluded Applications', 'User Actions', 'Auth Context',
-  'User Risk', 'SignIn Risk', 'Platforms Include', 'Platforms Exclude', 'Client Apps',
-  'Locations Included', 'Locations Excluded', 'Devices Included', 'Devices Excluded', 'Device Filters', 'Authentication Flows',
-  'Block', 'Require MFA', 'Authentication Strength MFA', 'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Terms Of Use', 'Custom Controls', 'Grant Operator',
-  'Application Enforced Restrictions', 'Cloud App Security', 'Sign In Frequency', 'Persistent Browser', 'Continuous Access Evaluation', 'Resilient Defaults', 'Secure Sign In Session', 'Duplicate Matches'
+  #  'Recommended Name', 'Modified', 'Created', 'Description',
+  #   'Included Users', 'Excluded Users',
+  #   'Included Applications', 'Excluded Applications', 'User Actions', 'Auth Context', 'Included Locations', 'Excluded Locations',
+  #   'User Risk', 'SignIn Risk', 'Platforms Included', 'Platforms Excluded', 'Included Devices', 'Excluded Devices', 'Client Apps','Device Filters', 'Authentication Flows',
+  #   'Block', 'Require MFA', 'Authentication Strength MFA', 'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Terms Of Use', 'Custom Controls', 'Grant Operator',
+  #   'Application Enforced Restrictions', 'Cloud App Security', 'Sign In Frequency', 'Persistent Browser', 'Continuous Access Evaluation', 'Resilient Defaults', 'Secure Sign In Session'
+  'Recommended Name', 'Modified', 'Created', 'Description',
+  'Included Users', 'Excluded Users',
+  'Included Applications', 'Excluded Applications', 'User Actions', 'Auth Context', 'Included Locations', 'Excluded Locations', 'User Risk', 'SignIn Risk', <#'Insider Risk',#> 'Platforms Included', 'Platforms Excluded', 'Included Devices', 'Excluded Devices', 'Client Apps', 'Device Filters', 'Authentication Flows', 'Block', 'Grant Operator', 'Require MFA', 'Authentication Strength MFA', 'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Terms Of Use', 'Custom Controls', 'Application Enforced Restrictions', 'Cloud App Security', 'Sign In Frequency', 'Persistent Browser', 'Continuous Access Evaluation', 'Resilient Defaults', 'Secure Sign In Session', 'RawJson'
 )
 
 if ($CAExport.Count -gt 0) {
@@ -1603,7 +1572,7 @@ function Get-RecommendationsHtmlFragment {
 '@
   foreach ($rec in $Recommendations) {
     # Replace any GUIDs in the note with friendly names then sanitize curated HTML
-  $rec.Note = Protect-RecNote -Html (Resolve-EntityGuidsInText -Text $rec.Note -UserMap $UserMap -GroupMap $GroupMap -RoleMap $RoleMap -AppMap $AppMap)
+    $rec.Note = Protect-RecNote -Html (Resolve-EntityGuidsInText -Text $rec.Note -UserMap $UserMap -GroupMap $GroupMap -RoleMap $RoleMap -AppMap $AppMap)
     $links = ''
     foreach ($key in $rec.Links.Keys) {
       $links += "<a class='rec-link' href='$($rec.Links[$key])' target='_blank' rel='noopener'>$key<span class='icon-ext'></span></a>" 
@@ -1614,7 +1583,8 @@ function Get-RecommendationsHtmlFragment {
       $Icon = '✔'
       $StateLabel = 'Pass'
       $detailOpen = ''
-    } else {
+    }
+    else {
       $RecStatus = 'fail'
       $RecStatusNote = [System.Web.HttpUtility]::HtmlEncode($rec.FailRecommendation)
       $Icon = '⚠'
@@ -1624,8 +1594,8 @@ function Get-RecommendationsHtmlFragment {
     $encName = [System.Web.HttpUtility]::HtmlEncode($rec.Name)
     $encCtrl = [System.Web.HttpUtility]::HtmlEncode($rec.Control)
     $importance = [System.Web.HttpUtility]::HtmlEncode($rec.Importance)
-  # Policy note already sanitized via Sanitize-RecNote (retains limited safe markup)
-  $rawNote = $rec.Note
+    # Policy note already sanitized via Sanitize-RecNote (retains limited safe markup)
+    $rawNote = $rec.Note
     # If this is CA-06 (overlapping include/exclude) attempt to enrich note with explicit per-policy overlap summary
     if ($rec.Control -eq 'CA-06') {
       # We'll look for pattern of policy lines already in $rawNote and append Overlaps section
@@ -1633,20 +1603,19 @@ function Get-RecommendationsHtmlFragment {
       $overlapDetails = @()
       foreach ($pol in $CAExport) {
         # Recreate raw include/exclude lists similar to table columns
-  $incUsers = @(); $excUsers = @(); $incRoles = @(); $excRoles = @()
+        $incUsers = @(); $excUsers = @(); $incRoles = @(); $excRoles = @()
         if ($pol.PSObject.Properties.Match('Included Users')) { $incUsers = @($pol.'Included Users' -split '[,\n]') }
         if ($pol.PSObject.Properties.Match('Excluded Users')) { $excUsers = @($pol.'Excluded Users' -split '[,\n]') }
-        if ($pol.PSObject.Properties.Match('RolesIncludeIds')) { $incRoles = @($pol.RolesIncludeIds -split '[,\n]') }
-        if ($pol.PSObject.Properties.Match('RolesExcludeIds')) { $excRoles = @($pol.RolesExcludeIds -split '[,\n]') }
+
         # Groups currently surfaced via Included Users column when resolved; skip unless future columns added
-        function Get-OverlapTokens { param($A,$B) ($A | ForEach-Object { $_.Trim() } | Where-Object { $_ -and ($B -contains $_.Trim()) }) | Sort-Object -Unique }
+        function Get-OverlapTokens { param($A, $B) ($A | ForEach-Object { $_.Trim() } | Where-Object { $_ -and ($B -contains $_.Trim()) }) | Sort-Object -Unique }
         $userOverlap = Get-OverlapTokens $incUsers $excUsers
         $roleOverlap = Get-OverlapTokens $incRoles $excRoles
         if ($userOverlap.Count -gt 0 -or $roleOverlap.Count -gt 0) {
           $pn = [System.Web.HttpUtility]::HtmlEncode($pol.Name)
           $parts = @()
-            if ($userOverlap.Count -gt 0) { $parts += ('Users: ' + ($userOverlap | ForEach-Object { "<strong class=\'overlap-entity\'>" + [System.Web.HttpUtility]::HtmlEncode($_) + '</strong>' }) -join ', ') }
-            if ($roleOverlap.Count -gt 0) { $parts += ('Roles: ' + ($roleOverlap | ForEach-Object { "<strong class=\'overlap-entity\'>" + [System.Web.HttpUtility]::HtmlEncode($_) + '</strong>' }) -join ', ') }
+          if ($userOverlap.Count -gt 0) { $parts += ('Users: ' + ($userOverlap | ForEach-Object { [System.Web.HttpUtility]::HtmlEncode($_) }) -join ', ') }
+          if ($roleOverlap.Count -gt 0) { $parts += ('Roles: ' + ($roleOverlap | ForEach-Object { [System.Web.HttpUtility]::HtmlEncode($_) }) -join ', ') }
           $overlapDetails += "<div class='overlap-line'><span class='overlap-policy-name'>$pn</span> — " + ($parts -join ' | ') + '</div>'
         }
       }
@@ -1675,20 +1644,23 @@ function Get-RecommendationsHtmlFragment {
 # If HTML export requested, generate full HTML report with embedded CSS/JS and write to file
 if ($HTMLExport) {
   if (-not $NoRecommendations) {
-  # Replace the legacy recommendations root div id while preserving original class and avoid overriding base CSS padding.
-  # Inline padding previously here caused mismatch with stylesheet; rely on unified .recommendations styling instead.
-  $SecurityCheck = (Get-RecommendationsHtmlFragment -Recommendations $recommendations) -replace "id='ca-security-checks' style=''", "id='panel-recommendations' role='tabpanel' aria-labelledby='tab-recommendations' aria-hidden='true' style='display:none'"
-  } else {
+    # Replace the legacy recommendations root div id while preserving original class and avoid overriding base CSS padding.
+    # Inline padding previously here caused mismatch with stylesheet; rely on unified .recommendations styling instead.
+    $SecurityCheck = (Get-RecommendationsHtmlFragment -Recommendations $recommendations) -replace "id='ca-security-checks' style=''", "id='panel-recommendations' role='tabpanel' aria-labelledby='tab-recommendations' aria-hidden='true' style='display:none'"
+  }
+  else {
     $SecurityCheck = ''
   }
   $recTabs = if ($NoRecommendations) {
     "<span id='tab-summary' class='btn-toggle' role='tab' aria-selected='false' tabindex='-1' aria-controls='panel-summary'>Summary</span><span id='tab-policies' class='btn-toggle active' role='tab' aria-selected='true' tabindex='0' aria-controls='panel-policies'>Policy Details</span>"
-  } else {
+  }
+  else {
     "<span id='tab-summary' class='btn-toggle' role='tab' aria-selected='false' tabindex='-1' aria-controls='panel-summary'>Summary</span><span id='tab-policies' class='btn-toggle active' role='tab' aria-selected='true' tabindex='0' aria-controls='panel-policies'>Policy Details</span><span id='tab-recommendations' class='btn-toggle' role='tab' aria-selected='false' tabindex='-1' aria-controls='panel-recommendations'>Recommendations</span>"
   }
   $OmissionBannerHtml = if ($NoRecommendations) {
     "<div class='no-recs-banner' role='note'>Recommendations omitted (-NoRecommendations)</div>" 
-  } else {
+  }
+  else {
     '' 
   }
   Write-Info 'Saving to File: HTML'
@@ -1719,30 +1691,35 @@ if ($HTMLExport) {
   .search-box input:focus { outline:2px solid #91d2ff; }
   .search-box .search-clear { position:absolute; right:6px; top:50%; transform:translateY(-50%); cursor:pointer; color:#005494; font-weight:bold; display:none; }
   .search-box.has-value .search-clear { display:inline; }
+  .status-filter { margin-left:12px; }
+  .status-filter select { padding:4px 8px; border-radius:4px; border:1px solid #fff; background:#ffffff; color:#003553; font-size:0.6rem; cursor:pointer; }
+  .status-filter select:focus { outline:2px solid #91d2ff; }
   /* Table */
   table { border-collapse: collapse; margin-bottom:30px; margin-top:55px; font-size:0.8em; min-width:400px; width:100%; table-layout:auto; }
   thead tr { background:linear-gradient(90deg,#005494,#0a79c5); color:#ffffff; text-align:center; }
-  th, td { padding:8px 8px; border:1px solid #d2d2d2; vertical-align:top; text-align:center; }
+  th, td { padding:6px 6px; border:1px solid #d2d2d2; vertical-align:top; text-align:center; }
   /* Dynamic width adjustments: allow natural content sizing, but keep some guidance */
-  th.name-col, td.name-col { min-width:180px; }
+  th.name-col, td.name-col { max-width:300px; }
   th.bool-col, td.bool-col { width:46px; min-width:46px; }
-  /* Legacy fixed width (optional) */
-  .fixed-layout th, .fixed-layout td { min-width:200px; }
+  th.group-assign-users, td.group-assign-users { max-width:150px !important; white-space:normal; word-wrap:break-word; overflow-wrap:break-word; }
   tbody tr:nth-of-type(even) { background-color:#f3f3f3; }
   tbody tr:last-of-type { border-bottom:2px solid #005494; }
   tr:hover { background-color:#d8d8d8 !important; }
-  .selected:not(th) { background-color:#eaf7ff !important; }
+  .selected:not(th) { background-color:#afe1ff !important; }
   /* Improved header readability + distinct sticky first column header */
-  th { background-color:transparent; color:#ffffff; font-weight:600; font-size:0.9rem; letter-spacing:.3px; border-bottom:3px solid #00416d; }
-  th.sticky-name { background:#004d7f; box-shadow:4px 0 6px -4px rgba(0,0,0,.35); }
-  .colselected { outline:3px solid #59c7fb; background:#e3f6ff !important; }
-  .sticky-name { position:sticky; inset-inline-start:0; background:#005494; color:#fff; z-index:5; font-weight:700; text-align:left; box-shadow:4px 0 6px -4px rgba(0,0,0,.35); }
-  .sticky-name.colselected { outline:none; }
-  /* Sticky header (below navbar ~55px high) */
-  .sticky-header thead th { position:sticky; top:55px; z-index:6; }
-  .sticky-header thead th.sticky-name { z-index:7; }
+  th { background-color:#005494; color:#ffffff; font-weight:600; font-size:0.9rem; letter-spacing:.3px; border-bottom:1px solid #00416d; border-top:0px; }
+  th.sticky-name { background:#004d7f; box-shadow:4px 0 4px -4px rgba(0,0,0,.35); }
+  .sticky-name { position:sticky; left:0; inset-inline-start:0; background:#005494; color:#fff; z-index:5; font-weight:700; box-shadow:4px 0 6px -4px rgba(0,0,0,.35); }
+  th.sticky-name { text-align:center; }
+  td.sticky-name { padding:0; text-align:left; }
+  td.sticky-name .status-label { position:absolute; left:0; top:0; bottom:0; width:24px; }
+  td.sticky-name .name-content { padding:8px 8px 8px 32px; display:block; }
+  /* Sticky header (below navbar ~55px high) - only column headers, not group headers */
+  .sticky-header thead tr.group-header th { position:static; }
+  .sticky-header thead tr.column-header-row th { position:sticky; top:55px; z-index:6; }
+  .sticky-header thead tr.column-header-row th.sticky-name { z-index:7; }
   /* Grouped header color palette */
-  .sticky-header thead tr.group-header th.group-span { font-size:0.65rem; letter-spacing:.4px; text-transform:uppercase; color:#fff; border-bottom:2px solid #fff; }
+  .sticky-header thead tr.group-header th.group-span { font-size:0.65rem; letter-spacing:.4px; text-transform:uppercase; color:#fff; border-bottom:0px; }
   .sticky-header thead tr.column-header-row th { font-size:0.60rem; }
   .group-general { background:#204b73; }
   .group-assign-users { background:#0d5c63; }
@@ -1772,8 +1749,6 @@ if ($HTMLExport) {
   .sticky-name .policy-link:hover, .sticky-name .policy-link:focus-visible { background:#ffcc33; }
   .sticky-name .policy-link:hover svg.icon-ext, .sticky-name .policy-link:focus-visible svg.icon-ext { color:#003553; transform:scale(1.12); }
   .sticky-name .policy-link svg.icon-ext { width:14px; height:14px; stroke:currentColor; stroke-width:1.9; fill:none; color:#fff; transition:color .18s ease, transform .18s ease; }
-  /* Overlap highlight (entities present in both include & exclude) */
-  .overlap-entity { font-weight:700; }
   .recommendation-card .overlap-summary { margin-top:8px; padding:6px 8px; background:#fff8f0; border:1px solid #f2c08f; border-radius:4px; font-size:0.62rem; line-height:1.25; }
   .recommendation-card .overlap-heading { font-weight:700; margin-bottom:4px; color:#8c4f00; }
   .recommendation-card .overlap-line { margin:2px 0; }
@@ -1823,18 +1798,19 @@ if ($HTMLExport) {
   .policy-include, .policy-exclude, .policy-grant { display:flex; align-items:flex-start; margin-top:5px; }
   .label-container { display:flex; align-items:center; margin-right:10px; }
   .include-label, .exclude-label, .grant-label { writing-mode:vertical-rl; transform:rotate(180deg); border-left:3px solid darkgrey; color:darkgray; }
+  .status-label { writing-mode:vertical-rl; transform:rotate(180deg); font-size:0.65rem; font-weight:600; padding:0; margin:0; height:100%; width:100%; display:flex; align-items:center; justify-content:center; text-transform:uppercase; letter-spacing:0.5px; }
+  .status-label.status-enabled { background:#d4edda; color:#155724; border-left:3px solid #28a745; }
+  .status-label.status-report { background:#ffe0b3; color:#856404; border-left:3px solid #ff9800; }
+  .status-label.status-disabled { background:#f8d7da; color:#721c24; border-left:3px solid #dc3545; }
   .status-icon-large { position:absolute; top:0; right:0; font-size:2em; }
   .status-icon-large.success { color:green; }
   .status-icon-large.warning { color:orange; }
   .status-icon-large.error { color:red; }
   .icon-ext { font-size:0.75em; margin-left:4px; color:#000; }
-  .selected td { background:#eaf7ff; }
+  .selected td { background:#afe1ff; }
   #back-to-top { position:fixed; right:18px; bottom:18px; background:#005494; color:#fff; border:none; padding:10px 14px; border-radius:50%; font-size:14px; cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,.3); display:none; z-index:998; }
   #back-to-top:hover { background:#0073c7; }
   .timestamp-note { font-size:0.7rem; color:#555; margin:6px 0 14px 0; }
-  /* Value match highlighting */
-  td.value-match, th.value-match { box-shadow:inset 0 0 0 3px #ffcc33; background:#fff6cc !important; position:relative; }
-  td.value-match:after, th.value-match:after { content:''; position:absolute; inset:0; pointer-events:none; box-shadow:0 0 0 2px #ffb400, 0 0 4px 2px rgba(255,153,0,.45); border-radius:2px; }
   /* Raw JSON details */
   details.raw-json { max-width:400px; }
   /* Summary table styling (separate class so not counted as a policy data table) */
@@ -1861,19 +1837,14 @@ if ($HTMLExport) {
   .json-toggle-bar { display:flex; gap:6px; margin-bottom:6px; }
   .json-toggle-bar button { background:#194e73; color:#fff; border:1px solid #0d3956; padding:3px 8px; font-size:0.65rem; cursor:pointer; border-radius:4px; }
   .json-toggle-bar button.active { background:#ffcc33; color:#003553; font-weight:600; }
-  /* Duplicate row highlight */
-  tr.dup-row { background:repeating-linear-gradient(45deg,#fff3e0,#fff3e0 12px,#ffe0b2 12px,#ffe0b2 24px); }
-  tr.dup-row td { border-top:2px solid #ffb347; border-bottom:2px solid #ffb347; }
-  /* Overlap row highlight */
-  tr.row-overlap { background:linear-gradient(90deg,rgba(255,206,86,0.18),rgba(255,206,86,0.05)); }
-  tr.row-overlap td { border-top:1px solid rgba(255,206,86,0.55); border-bottom:1px solid rgba(255,206,86,0.55); }
-  .id-col-hidden { display:none !important; }
-  .id-col-toggle { background:#ffffff; color:#005494; border:1px solid rgba(255,255,255,0.4); padding:4px 10px; font-size:0.7rem; border-radius:4px; cursor:pointer; margin-left:6px; }
-  .id-col-toggle.active { background:#ffcc33; color:#002640; font-weight:600; }
+
   /* Boolean / placeholder & status styling */
   .bool-yes { color:#1f7a33; font-weight:600; }
   .bool-no { color:#c4c4c4; font-weight:400; }
   .placeholder { color:#b9b9b9; font-style:italic; }
+  .pill-block { display:inline-block; padding:4px 10px; border-radius:12px; font-size:0.7rem; font-weight:700; letter-spacing:0.5px; background:#dc3545; color:#fff; border:1px solid #bd2130; }
+  .pill-grant { display:inline-block; padding:4px 10px; border-radius:12px; font-size:0.7rem; font-weight:700; letter-spacing:0.5px; background:#28a745; color:#fff; border:1px solid #1e7e34; }
+  .pill-recommended { display:inline-block; padding:2px 6px; margin-left:6px; border-radius:8px; font-size:0.6rem; font-weight:600; letter-spacing:0.3px; background:#e3f2fd; color:#1565c0; border:1px solid #90caf9; }
   th.bool-col, td.bool-col { min-width:46px; width:46px; padding:6px 4px; font-size:0.65rem; }
   td.bool-col span { display:inline-block; min-width:16px; }
   .status-badge { display:inline-block; padding:2px 6px; border-radius:10px; font-size:0.62rem; font-weight:600; letter-spacing:.3px; }
@@ -1909,22 +1880,20 @@ if ($HTMLExport) {
   .desc-cell.expanded .desc-text { -webkit-line-clamp:unset; max-height:none; }
   .desc-expand { position:absolute; bottom:2px; right:4px; background:#ffffffcc; border:1px solid #c3d1dc; font-size:0.55rem; padding:2px 4px; cursor:pointer; border-radius:3px; }
   .desc-expand:hover { background:#f1f5f8; }
-  @media (max-width:1200px){ th,td{min-width:180px;font-size:0.6em;} .search-box input{min-width:150px;} th.bool-col, td.bool-col { min-width:40px; } }
-  @media (max-width:1200px){ th,td{min-width:180px;font-size:0.6em;} .search-box input{min-width:150px;} }
-  @media (max-width:800px){ th,td{min-width:140px;font-size:0.5em;} .view-toggle-group{display:flex;flex-wrap:wrap;} .search-box{margin-top:6px;} }
-'  /* Name mismatch styles (moved from dynamic append so they appear in initial style block) */
-  .name-mismatch { background: linear-gradient(90deg,#fff8f8 0%,#ffecec 100%); position:relative; }
-  .name-mismatch .mismatch-indicator { margin-left:6px; color:#ff1a1a; font-weight:900; text-shadow:0 0 2px rgba(0,0,0,0.25); }
-  .name-mismatch a { font-weight:600; }
-  .mismatch-token { color:#d40000; text-decoration:line-through; font-weight:700; }
+  /* Assignment cell truncation */
+  .assignment-cell { position:relative; }
+  .assignment-text { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis; white-space:normal; }
+  .assignment-cell.expanded .assignment-text { -webkit-line-clamp:unset; max-height:none; }
+  .assignment-expand { position:absolute; bottom:2px; right:4px; background:#ffffffcc; border:1px solid #c3d1dc; font-size:0.55rem; padding:2px 4px; cursor:pointer; border-radius:3px; }
+  .assignment-expand:hover { background:#f1f5f8; }
+  @media (max-width:1200px){ th,td{font-size:0.6em;} .search-box input{min-width:150px;} th.bool-col, td.bool-col { min-width:40px; } }
+  @media (max-width:800px){ th,td{font-size:0.5em;} .view-toggle-group{display:flex;flex-wrap:wrap;} .search-box{margin-top:6px;} }
 '@
 
   # Add visually hidden utility class and live region container for accessibility announcements
   # The live region enables non-visual users to receive feedback for actions (e.g., JSON copied, filter changes)
   $style = $style + '\n  .visually-hidden { position:absolute !important; width:1px !important; height:1px !important; padding:0 !important; margin:-1px !important; overflow:hidden !important; clip:rect(0 0 0 0) !important; white-space:nowrap !important; border:0 !important; }'
-  $htmlDoc = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><style>$style</style><title>CA Export v$CAExportVersion - $TenantName</title></head><body><nav class='navbar-custom'><div class='nav-left'><div class='icon-server' aria-hidden='true'>🖥️</div><div class='brand'>CA Export v$CAExportVersion</div><div class='view-toggle-group' role='tablist' aria-label='Report view' style='margin-left:20px;'>$recTabs<button id='toggle-id-cols' class='id-col-toggle' aria-pressed='false' title='Show/hide raw ID columns'>Show ID Columns</button></div><div class='search-box'><input id='policy-search' type='text' placeholder='Search policies...' aria-label='Search policies'/><span class='search-clear' id='policy-search-clear' title='Clear' role='button' aria-label='Clear search'>&times;</span></div></div><div class='nav-center'><strong>$TenantName</strong></div><div class='nav-right'><strong>$Date</strong></div></nav>$OmissionBannerHtml<div id='live-region' class='visually-hidden' aria-live='polite' aria-atomic='true'></div><button id='back-to-top' aria-label='Back to top' title='Back to top'>↑</button>"
-
-  # $SecurityCheck already set above based on -NoRecommendations; no duplicate call here
+  $htmlDoc = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><style>$style</style><title>CA Export v$CAExportVersion - $TenantName</title></head><body><nav class='navbar-custom'><div class='nav-left'><div class='icon-server' aria-hidden='true'>🖥️</div><div class='brand'>CA Export $CAExportVersion</div><div class='view-toggle-group' role='tablist' aria-label='Report view' style='margin-left:20px;'>$recTabs</div><div class='search-box'><input id='policy-search' type='text' placeholder='Search policies...' aria-label='Search policies'/><span class='search-clear' id='policy-search-clear' title='Clear' role='button' aria-label='Clear search'>&times;</span></div><div class='status-filter'><select id='status-filter' aria-label='Filter by status'><option value='all'>All Policies</option><option value='enabled'>Enabled Only</option><option value='report'>Report-Only</option><option value='disabled'>Disabled Only</option></select></div></div><div class='nav-center'><strong>$TenantName</strong></div><div class='nav-right'><strong>$Date</strong></div></nav>$OmissionBannerHtml<div id='live-region' class='visually-hidden' aria-live='polite' aria-atomic='true'></div><button id='back-to-top' aria-label='Back to top' title='Back to top'>↑</button>"
 
   Write-Info 'Launching: Web Browser'
   # Ensure export path ends with separator
@@ -1932,14 +1901,13 @@ if ($HTMLExport) {
     $ExportLocation = $ExportLocation + [IO.Path]::DirectorySeparatorChar 
   }
   $Launch = Join-Path -Path $ExportLocation -ChildPath $FileName
-  # We'll build the summary fragment first, then add the real summary panel (no placeholder/replacement needed)
+  # Build the summary fragment first, then add the real summary panel (no placeholder/replacement needed)
 
   # ----- Summary Table -----
   $policyTotal = $CAPolicy.Count
   $enabledCount = ($CAPolicy | Where-Object { $_.State -eq 'enabled' }).Count
   $reportOnly = ($CAPolicy | Where-Object { $_.State -eq 'enabledForReportingButNotEnforced' }).Count
   $disabledCount = ($CAPolicy | Where-Object { $_.State -eq 'disabled' }).Count
-  $duplicates = ($CAExport | Where-Object { $_.IsDuplicate }).Count
   $withMfa = ($CAExport | Where-Object { $_.'Require MFA' -eq 'True' -or $_.'Authentication Strength MFA' }).Count
   $withStrength = ($CAExport | Where-Object { $null -ne $_.'Authentication Strength MFA' -and $_.'Authentication Strength MFA' -ne '' }).Count
   $withBlock = ($CAExport | Where-Object { $_.Block -eq 'True' }).Count
@@ -1978,27 +1946,32 @@ if ($HTMLExport) {
       if (
         $Value -is [int] -or $Value -is [long] -or $Value -is [double] -or $Value -is [decimal]) {
         $numericVal = [double]$Value; $canParse = $true
-      } elseif ($Value -isnot [string]) {
+      }
+      elseif ($Value -isnot [string]) {
         try {
           $numericVal = [double]$Value; $canParse = $true 
-        } catch {
+        }
+        catch {
           Write-Verbose 'Add-SummaryRow: numeric conversion failed.' 
         }
-      } elseif ([double]::TryParse([string]$Value, [ref]$numericVal)) {
+      }
+      elseif ([double]::TryParse([string]$Value, [ref]$numericVal)) {
         $canParse = $true
       }
     }
     if ($canParse -and $TotalRef -gt 0) {
       try {
         $pct = ('{0:P1}' -f ($numericVal / $TotalRef)) 
-      } catch {
+      }
+      catch {
         $pct = '' 
       }
     }
     $encName = [System.Web.HttpUtility]::HtmlEncode($Name)
     $displayValue = if ($Value -is [string]) {
       [System.Web.HttpUtility]::HtmlEncode($Value) 
-    } else {
+    }
+    else {
       $Value 
     }
     return "<tr><td>$encName</td><td>$displayValue</td><td>$pct</td></tr>"
@@ -2008,7 +1981,6 @@ if ($HTMLExport) {
   $summaryTable += (Add-SummaryRow -Name 'Enabled' -Value $enabledCount -TotalRef $policyTotal)
   $summaryTable += (Add-SummaryRow -Name 'Report-only' -Value $reportOnly -TotalRef $policyTotal)
   $summaryTable += (Add-SummaryRow -Name 'Disabled' -Value $disabledCount -TotalRef $policyTotal)
-  $summaryTable += (Add-SummaryRow -Name 'Duplicate (content) Matches' -Value $duplicates -TotalRef $policyTotal)
   $summaryTable += (Add-SummaryRow -Name 'Policies Requiring MFA (any)' -Value $withMfa -TotalRef $policyTotal)
   $summaryTable += (Add-SummaryRow -Name 'Policies With Auth Strength' -Value $withStrength -TotalRef $policyTotal)
   $summaryTable += (Add-SummaryRow -Name 'Phishing-resistant Strength' -Value $phishResistant -TotalRef $policyTotal)
@@ -2016,7 +1988,7 @@ if ($HTMLExport) {
   $summaryTable += (Add-SummaryRow -Name 'Risk-Based Policies' -Value $riskPolicies -TotalRef $policyTotal)
   $summaryTable += (Add-SummaryRow -Name 'Device Condition / Control Policies' -Value $devicePolicies -TotalRef $policyTotal)
   $summaryTable += (Add-SummaryRow -Name 'Terms of Use Policies' -Value $termsPolicies -TotalRef $policyTotal)
-  # Admin-focused metrics using raw policy objects with helper functions (reuse central logic)
+  # Admin-focused metrics using raw policy objects with helper functions
   if ($RawPolicyIndex.Count -gt 0) {
     $rawPolicies = $RawPolicyIndex.Values
     $adminTargets = 0
@@ -2053,23 +2025,18 @@ if ($HTMLExport) {
     <span class='legend-item'><span class='legend-swatch fail'>⚠</span> Rec Attention</span>
     <span class='legend-item'><span class='legend-swatch'>✔</span> Boolean True</span>
     <span class='legend-item'><span class='legend-swatch'>—</span> Boolean False</span>
-    <span class='legend-item'><button type='button' id='filter-overlap' class='legend-chip' aria-pressed='false' title='Filter to policies where include & exclude overlap'>Overlap</button></span>
     <span class='legend-divider' aria-hidden='true'></span>
   <button type='button' id='bool-mode-toggle' class='util-button bool-mode-toggle' data-mode='icon' aria-pressed='false' title='Toggle boolean display mode'>Boolean: Icons</button>
-  <button type='button' id='layout-mode-toggle' class='layout-toggle' data-mode='dynamic' aria-pressed='false' title='Toggle fixed/dynamic column widths'>Layout: Dynamic</button>
   </div>
 '@
   $HtmlParts += $legendHtml
   # Define columns (reuse CSV default ordering for consistency, but can trim for HTML readability)
   $htmlColumns = @(
-    'Name', 'Recommended Name', 'Status', 'Modified', 'Created', 'Description',
-    'Included Users', 'Excluded Users', 'UsersIncludeIds', 'UsersExcludeIds', 'RolesIncludeIds', 'RolesExcludeIds',
-    'Included Applications', 'Excluded Applications', 'ApplicationsIncludedIds', 'ApplicationsExcludedIds',
-    'User Actions', 'Auth Context', 'User Risk', 'SignIn Risk', 'Platforms Include', 'Platforms Exclude',
-    'Locations Included', 'Locations Excluded', 'LocationsIncludedIds', 'LocationsExcludedIds', 'Client Apps',
-    'Devices Included', 'Devices Excluded', 'Device Filters', 'Authentication Flows', 'Block', 'Require MFA', 'Authentication Strength MFA',
-    'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Terms Of Use', 'TermsOfUseIds', 'Custom Controls', 'Grant Operator',
-    'Application Enforced Restrictions', 'Cloud App Security', 'Sign In Frequency', 'Persistent Browser', 'Continuous Access Evaluation', 'Resilient Defaults', 'Secure Sign In Session', 'RawJson', 'Duplicate Matches'
+    'Name', 'Modified', 'Created',
+    'Included Users', 'Excluded Users',
+    'Included Applications', 'Excluded Applications', 'User Actions', 'Auth Context', 'Included Locations', 'Excluded Locations', 'User Risk', 'SignIn Risk', 'Platforms Included', 'Platforms Excluded', 'Included Devices', 'Excluded Devices', 'Client Apps', 'Device Filters', 'Authentication Flows', 'Block', 'Grant Operator', 'Require MFA', 'Authentication Strength MFA',
+    'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Terms Of Use', 'Custom Controls',
+    'Application Enforced Restrictions', 'Cloud App Security', 'Sign In Frequency', 'Persistent Browser', 'Continuous Access Evaluation', 'Resilient Defaults', 'Secure Sign In Session', 'RawJson'
   )
   # Build table rows per policy
   $table = @()
@@ -2078,23 +2045,26 @@ if ($HTMLExport) {
   $boolColumns = @('Block', 'Require MFA', 'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Application Enforced Restrictions', 'Cloud App Security', 'Resilient Defaults')
   # Build multi-row header: first row (spanning categories) + second row (individual columns)
   $groupDefinitions = @(
-    @{ Name = 'General'; Class='group-general;'; Columns = @('Name','Recommended Name','Status','Modified','Created','Description') },
-    @{ Name = 'Assignments - Users'; Class='group-assign-users;'; Columns = @('Included Users','Excluded Users') },
-    @{ Name = 'Assignments - Target Resources'; Class='group-assign-target'; Columns = @('Included Applications','Excluded Applications','User Actions','Auth Context','User Risk','SignIn Risk','Platforms Include','Platforms Exclude') },
-    @{ Name = 'Assignments - Network'; Class='group-network'; Columns = @('Locations Included','Locations Excluded') },
-    @{ Name = 'Assignments - Conditions'; Class='group-conditions'; Columns = @('Client Apps','Devices Included','Devices Excluded','Device Filters','Authentication Flows') },
-    @{ Name = 'Access controls - Grant'; Class='group-grant'; Columns = @('Block','Require MFA','Authentication Strength MFA','Compliant Device','Domain Joined Device','Compliant Application','Approved Application','Password Change','Terms Of Use','Custom Controls','Grant Operator') },
-    @{ Name = 'Access controls - Session'; Class='group-session'; Columns = @('Application Enforced Restrictions','Cloud App Security','Sign In Frequency','Persistent Browser','Continuous Access Evaluation','Resilient Defaults','Secure Sign In Session') },
-    @{ Name = 'Output'; Class='group-output'; Columns = @('RawJson','Duplicate Matches') }
+    @{ Name = 'General'; Class = 'group-general;'; Columns = @('Name', 'Modified', 'Created') },
+    @{ Name = 'Assignments - Users'; Class = 'group-assign-users;'; Columns = @('Included Users', 'Excluded Users') },
+    @{ Name = 'Assignments - Target Resources'; Class = 'group-assign-target'; Columns = @('Included Applications', 'Excluded Applications', 'User Actions', 'Auth Context') },
+    @{ Name = 'Assignments - Network'; Class = 'group-network'; Columns = @('Included Locations', 'Excluded Locations') },
+    @{ Name = 'Assignments - Conditions'; Class = 'group-conditions'; Columns = @('User Risk', 'SignIn Risk', 'Platforms Included', 'Platforms Excluded', 'Included Devices', 'Excluded Devices', 'Client Apps', 'Device Filters', 'Authentication Flows') },
+    @{ Name = 'Access controls - Grant'; Class = 'group-grant'; Columns = @('Block', 'Grant Operator', 'Require MFA', 'Authentication Strength MFA', 'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Terms Of Use', 'Custom Controls') },
+    @{ Name = 'Access controls - Session'; Class = 'group-session'; Columns = @('Application Enforced Restrictions', 'Cloud App Security', 'Sign In Frequency', 'Persistent Browser', 'Continuous Access Evaluation', 'Resilient Defaults', 'Secure Sign In Session') },
+    @{ Name = 'Output'; Class = 'group-output'; Columns = @('RawJson') }
   )
   # Sanity: ensure ordering in htmlColumns matches group concatenation; if mismatch, groups may mis-align
   # Compose group header row
   $groupRow = '<tr class="group-header">' + (
     $groupDefinitions | ForEach-Object {
-      $colspan = $_.Columns.Count
+      $totalCols = $_.Columns.Count
+      # Count how many ID columns are in this group (these will be hidden)
+      $hiddenCount = ($_.Columns | Where-Object { $idColumns -contains $_ }).Count
+      $visibleColspan = $totalCols - $hiddenCount
       $gName = [System.Web.HttpUtility]::HtmlEncode($_.Name)
       $gClass = $_.Class
-      "<th class='group-span $gClass' colspan='$colspan'>$gName</th>"
+      "<th class='group-span $gClass' colspan='$visibleColspan' data-total='$totalCols' data-visible='$visibleColspan'>$gName</th>"
     }
   ) -join '' + '</tr>'
   # Map column -> group class
@@ -2105,11 +2075,11 @@ if ($HTMLExport) {
       $gCls = $columnGroupClassMap[$_]
       if ($_ -eq 'Name') {
         "<th id='th-name' class='sticky-name name-col $gCls'>Name</th>" 
-      } elseif ($_ -eq 'Status') {
-        "<th class='$gCls'>Status</th>" 
-      } elseif ($boolColumns -contains $_) {
+      }
+      elseif ($boolColumns -contains $_) {
         "<th class='bool-col $gCls'>$_</th>" 
-      } else {
+      }
+      else {
         "<th class='$gCls'>$_</th>" 
       }
     }) -join '' + '</tr>'
@@ -2117,117 +2087,115 @@ if ($HTMLExport) {
   $table += $header
   $table += '<tbody>'
   foreach ($p in $CAExport) {
-    # Build overlap sets for users, roles, (groups if present) for bold highlighting
-    $incUsersRaw = $p.PSObject.Properties.Match('Included Users') ? $p.'Included Users' : $null
-    $excUsersRaw = $p.PSObject.Properties.Match('Excluded Users') ? $p.'Excluded Users' : $null
-    $incUsers = New-TokenSet $incUsersRaw
-    $excUsers = New-TokenSet $excUsersRaw
-    $userOverlap = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    if ($incUsers -and $excUsers) {
-      foreach ($u in $incUsers) { if ($excUsers -and ($excUsers.Contains($u))) { $null = $userOverlap.Add($u) } }
-    }
-
-    $incRoleIdsRaw = $p.PSObject.Properties.Match('RolesIncludeIds') ? $p.RolesIncludeIds : $null
-    $excRoleIdsRaw = $p.PSObject.Properties.Match('RolesExcludeIds') ? $p.RolesExcludeIds : $null
-    $incRoles = New-TokenSet $incRoleIdsRaw
-    $excRoles = New-TokenSet $excRoleIdsRaw
-    $roleOverlap = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    if ($incRoles -and $excRoles) {
-      foreach ($r in $incRoles) { if ($excRoles -and ($excRoles.Contains($r))) { $null = $roleOverlap.Add($r) } }
-    }
-
-    # (Groups not currently exposed in htmlColumns; placeholder if added later)
-    $HighlightColumns = @('Included Users','Excluded Users','RolesIncludeIds','RolesExcludeIds')
-    $hasOverlap = ($userOverlap.Count -gt 0 -or $roleOverlap.Count -gt 0)
-
     $rowTds = @()
     $colIndex = 0
     foreach ($col in $htmlColumns) {
       $colIndex++
       $raw = $null
-      if ($p.PSObject.Properties.Match($col)) {
+      # Use direct property access instead of Match() which uses wildcards
+      if ($p.PSObject.Properties.Name -contains $col) {
         $raw = $p.$col 
       }
+      
       if ($col -eq 'RawJson') {
         # Lazy JSON: store minimal placeholder with data attributes; JSON filled client-side on first expansion
         $hasOrig = ($RawPolicyIndex -and $p.PolicyId -and $RawPolicyIndex.ContainsKey($p.PolicyId))
         $origFlag = if ($hasOrig) { 'true' } else { 'false' }
-        $rowTds += "<td><details class='raw-json lazy-json' data-policyid='$($p.PolicyId)' data-has-orig='$origFlag'><summary>View</summary><div class='json-toggle-bar'><button type='button' class='json-btn active' data-mode='mut' aria-pressed='true'>Mutated</button><button type='button' class='json-btn' data-mode='orig' aria-pressed='false'$(if($hasOrig){''}else{' disabled title=\"No original snapshot\"'})>Original</button><button type='button' class='json-copy util-button' data-copy='mut' title='Copy displayed JSON' aria-label='Copy JSON'>Copy</button></div><pre class='json-block' data-mode='mut' data-loaded='false'></pre><pre class='json-block' data-mode='orig' style='display:none;' data-loaded='false'></pre></details></td>"
-      } elseif ($col -eq 'Name' -and $p.PolicyId) {
+        $rowTds += "<td class='$idHiddenClass'><details class='raw-json lazy-json' data-policyid='$($p.PolicyId)' data-has-orig='$origFlag'><summary>View</summary><div class='json-toggle-bar'><button type='button' class='json-btn active' data-mode='mut' aria-pressed='true'>Mutated</button><button type='button' class='json-btn' data-mode='orig' aria-pressed='false'$(if($hasOrig){''}else{' disabled title=\"No original snapshot\"'})>Original</button><button type='button' class='json-copy util-button' data-copy='mut' title='Copy displayed JSON' aria-label='Copy JSON'>Copy</button></div><pre class='json-block' data-mode='mut' data-loaded='false'></pre><pre class='json-block' data-mode='orig' style='display:none;' data-loaded='false'></pre></details></td>"
+      }
+      elseif ($col -eq 'Name' -and $p.PolicyId) {
         $plink = "$LinkURL$($p.PolicyId)"
         $rawName = [string]$raw
         $safe = [System.Web.HttpUtility]::HtmlEncode($rawName)
-        if ($p.NameMismatch) {
-          $pattern = '(?i)(allow|allowed|allowlist|permit|permitted|block|blocked|deny|denied|prevent)'
-          $highlighted = [regex]::Replace($safe, $pattern, { param($m) "<span class='mismatch-token' title='Token contributing to mismatch'>$($m.Value)</span>" })
-          $rowTds += "<td class='sticky-name name-col name-mismatch'><span class='mismatch-indicator' aria-label='Name/action mismatch' title='Name/action mismatch'> ⚠ </span> <span class='policy-name' title='Policy name intent differs from Block control'>$highlighted</span><a class='policy-link' href='$plink' target='_blank' aria-label='Open policy in new tab' title='Open policy in new tab'><svg class='icon-ext' viewBox='0 0 24 24' focusable='false' aria-hidden='true'><path d='M14 3h7v7m0-7L10 14' stroke-linecap='round' stroke-linejoin='round'/><path d='M21 21H3V3h7' stroke-linecap='round' stroke-linejoin='round'/></svg><span class='visually-hidden'></span></a></td>"
-        } else {
-          $rowTds += "<td class='sticky-name name-col'><span class='policy-name'>$safe</span><a class='policy-link' href='$plink' target='_blank' aria-label='Open policy in new tab' title='Open policy in new tab'><svg class='icon-ext' viewBox='0 0 24 24' focusable='false' aria-hidden='true'><path d='M14 3h7v7m0-7L10 14' stroke-linecap='round' stroke-linejoin='round'/><path d='M21 21H3V3h7' stroke-linecap='round' stroke-linejoin='round'/></svg><span class='visually-hidden'></span></a></td>"
-        }
-      } elseif ($col -eq 'Status') {
-        $statusVal = [string]$raw
-  # (Styles for name mismatch already included in initial $style block)
+        # Get status for label
+        $statusVal = [string]$p.Status
+        # Generate status label
+        $statusLabelClass = ''
+        $statusLabelText = ''
         switch -Regex ($statusVal) {
           '^enabled$' {
-            $badge = "<span class='status-badge status-enabled' title='Enabled'>ENABLED</span>"; break 
+            $statusLabelClass = 'status-label status-enabled'
+            $statusLabelText = 'Enabled'
+            break
           }
           'enabledForReportingButNotEnforced' {
-            $badge = "<span class='status-badge status-report' title='Report-only'>REPORT</span>"; break 
+            $statusLabelClass = 'status-label status-report'
+            $statusLabelText = 'Report'
+            break
+          }
+          'report only' {
+            $statusLabelClass = 'status-label status-report'
+            $statusLabelText = 'Report'
+            break
           }
           '^disabled$' {
-            $badge = "<span class='status-badge status-disabled' title='Disabled'>DISABLED</span>"; break 
+            $statusLabelClass = 'status-label status-disabled'
+            $statusLabelText = 'Disabled'
+            break
           }
           default {
-            $badge = ([System.Web.HttpUtility]::HtmlEncode($statusVal)) 
+            $statusLabelClass = 'status-label'
+            $statusLabelText = $statusVal
           }
         }
-        $rowTds += "<td>$badge</td>"
-      } elseif ($col -eq 'Description') {
+        $statusLabel = "<span class='$statusLabelClass' title='$statusVal'>$statusLabelText</span>"
+        
+        # Add recommended name pill if available
+        $recNamePill = ''
+        if ($p.'Recommended Name' -and $p.'Recommended Name' -ne $p.Name) {
+          $recNameSafe = [System.Web.HttpUtility]::HtmlEncode([string]$p.'Recommended Name')
+          $recNamePill = "<span class='pill-recommended' title='Recommended Name'>$recNameSafe</span>"
+        }
+        
+        $rowTds += "<td class='sticky-name name-col'>$statusLabel<div class='name-content'><span class='policy-name'>$safe</span><!--$recNamePill--><a class='policy-link' href='$plink' target='_blank' aria-label='Open policy in new tab' title='Open policy in new tab'><svg class='icon-ext' viewBox='0 0 24 24' focusable='false' aria-hidden='true'><path d='M14 3h7v7m0-7L10 14' stroke-linecap='round' stroke-linejoin='round'/><path d='M21 21H3V3h7' stroke-linecap='round' stroke-linejoin='round'/></svg><span class='visually-hidden'></span></a></div></td>"
+      }
+      elseif ($col -eq 'Description') {
         if ($null -eq $raw -or [string]::IsNullOrWhiteSpace([string]$raw)) {
           $rowTds += "<td class='desc-cell'><span class='placeholder' aria-label='None'>—</span></td>"
-        } else {
+        }
+        else {
           $safe = [System.Web.HttpUtility]::HtmlEncode([string]$raw)
           $descId = 'desc-' + [guid]::NewGuid().ToString('N')
           $rowTds += "<td class='desc-cell'><div class='desc-text' id='$descId'>$safe</div><button type='button' class='desc-expand' aria-label='Expand description' aria-expanded='false' aria-controls='$descId'>More</button></td>"
         }
-      } elseif ($boolColumns -contains $col) {
+      }
+      elseif ($col -eq 'Block') {
         if ($raw -eq 'True' -or $raw -eq $true) {
-          $rowTds += "<td class='bool-col'><span class='bool-yes' aria-label='True'>✔</span></td>" 
-        } else {
-          $rowTds += "<td class='bool-col'><span class='bool-no' aria-label='False'>—</span></td>" 
+          $rowTds += "<td class='$idHiddenClass'><span class='pill-block' aria-label='Block'>BLOCK</span></td>" 
         }
-      } else {
+        else {
+          $rowTds += "<td class='$idHiddenClass'><span class='pill-grant' aria-label='Grant'>ALLOW</span></td>" 
+        }
+      }
+      elseif ($boolColumns -contains $col) {
+        if ($raw -eq 'True' -or $raw -eq $true) {
+          $rowTds += "<td class='bool-col$idHiddenClass'><span class='bool-yes' aria-label='True'>✔</span></td>" 
+        }
+        else {
+          $rowTds += "<td class='bool-col$idHiddenClass'><span class='bool-no' aria-label='False'>—</span></td>" 
+        }
+      }
+      else {
         if ($null -eq $raw -or [string]::IsNullOrWhiteSpace([string]$raw)) {
-          $rowTds += "<td><span class='placeholder' aria-label='None'>—</span></td>" 
-        } else {
+          $rowTds += "<td class='$idHiddenClass'><span class='placeholder' aria-label='None'>—</span></td>" 
+        }
+        else {
           $rawString = [string]$raw
-          if ($HighlightColumns -contains $col) {
-            $tokens = $rawString -split '[,\n]'
-            $outTokens = @()
-            foreach ($t in $tokens) {
-              $trim = $t.Trim()
-              if (-not $trim) { continue }
-              $enc = [System.Web.HttpUtility]::HtmlEncode($trim)
-              $isOverlap = $false
-              if (($col -like 'Included Users') -or ($col -like 'Excluded Users')) { $isOverlap = $userOverlap.Contains($trim) }
-              elseif (($col -eq 'RolesIncludeIds') -or ($col -eq 'RolesExcludeIds')) { $isOverlap = $roleOverlap.Contains($trim) }
-              if ($isOverlap) { $outTokens += "<strong class='overlap-entity'>$enc</strong>" } else { $outTokens += $enc }
-            }
-            $joined = $outTokens -join ', '
-            $rowTds += "<td>$joined</td>"
-          } else {
-            $safe = [System.Web.HttpUtility]::HtmlEncode($rawString)
-            $rowTds += "<td>$safe</td>"
+          $safe = [System.Web.HttpUtility]::HtmlEncode($rawString)
+          
+          # Check if this is an assignment column that should be truncatable
+          $truncatableColumns = @('Included Users', 'Excluded Users', 'Included Applications', 'Excluded Applications', 'Included Locations', 'Excluded Locations')
+          if ($truncatableColumns -contains $col -and $rawString.Length -gt 100) {
+            $assignId = 'assign-' + [guid]::NewGuid().ToString('N')
+            $rowTds += "<td class='assignment-cell $idHiddenClass'><div class='assignment-text' id='$assignId'>$safe</div><button type='button' class='assignment-expand' aria-label='Expand' aria-expanded='false' aria-controls='$assignId'>More</button></td>"
+          }
+          else {
+            $rowTds += "<td class='$idHiddenClass'>$safe</td>"
           }
         }
       }
     }
-    # Compose row classes (duplicates, overlaps)
-    $rowClasses = @()
-    if ($p.IsDuplicate) { $rowClasses += 'dup-row' }
-    if ($hasOverlap) { $rowClasses += 'row-overlap' }
-    $classAttr = if ($rowClasses.Count -gt 0) { ' class="' + ($rowClasses -join ' ') + '"' } else { '' }
-    $table += "<tr$classAttr>" + ($rowTds -join '') + '</tr>'
+    $table += '<tr>' + ($rowTds -join '') + '</tr>'
   }
   $table += '</tbody></table>'
   # (Summary panel already populated above)
@@ -2238,8 +2206,8 @@ if ($HTMLExport) {
   $HtmlParts += $SecurityCheck
 
   # Embed lightweight policy index for lazy JSON (excluding heavy raw JSON fields)
-  $policyDataJson = ($CAExport | Select-Object PolicyId, Name, Status, 'Grant Controls', 'Included Users','Excluded Users','RolesIncludeIds','RolesExcludeIds','Applications','Locations','Platforms','Client Apps','State' | ConvertTo-Json -Depth 4 -Compress)
-  $rawIndexJson = if($RawPolicyIndex.Count -gt 0){ ($CAPolicy | ConvertTo-Json -Depth 6 -Compress) } else { '[]' }
+  $policyDataJson = ($CAExport | Select-Object PolicyId, Name, Status, 'Grant Controls', 'Included Users', 'Excluded Users', 'Applications', 'Locations', 'Platforms', 'Client Apps', 'State' | ConvertTo-Json -Depth 4 -Compress)
+  $rawIndexJson = if ($RawPolicyIndex.Count -gt 0) { ($CAPolicy | ConvertTo-Json -Depth 6 -Compress) } else { '[]' }
   $fallbackToggle = @"
 <script>
 window.CAExportData = $policyDataJson;
@@ -2263,10 +2231,8 @@ document.addEventListener('DOMContentLoaded', function(){
   var searchInput = document.getElementById('policy-search');
   var searchClear = document.getElementById('policy-search-clear');
   var backToTop = document.getElementById('back-to-top');
-  var idToggle = document.getElementById('toggle-id-cols');
   var recToggle = document.getElementById('toggle-recs');
   var boolModeToggle = document.getElementById('bool-mode-toggle');
-  var layoutModeToggle = document.getElementById('layout-mode-toggle');
 
   function activate(tabId){ // Persist and switch between main report panels (Summary / Policy Details / Recommendations)
     if(!panels[tabId]){ if(window.console) console.warn('Activate called for unknown tabId', tabId); }
@@ -2322,13 +2288,6 @@ document.addEventListener('DOMContentLoaded', function(){
   // Table interactions (guarded)
   var table = policies ? policies.querySelector('table') : null;
   if(table){
-    // Helper: clear all value-match highlights
-    function clearValueMatches(){
-      var prev = table.querySelectorAll('.value-match');
-      for(var i=0;i<prev.length;i++){ prev[i].classList.remove('value-match'); }
-    }
-    // Current tracked match value
-    var activeMatchValue = null;
     table.addEventListener('click', function(e){
       // Lazy JSON population on first expand
       var summary = e.target.closest('summary');
@@ -2346,7 +2305,7 @@ document.addEventListener('DOMContentLoaded', function(){
                   var policyRow = window.CAExportData ? window.CAExportData.find(function(x){ return x.PolicyId===pid; }) : null;
                   if(policyRow){
                     var shallow = Object.assign({}, policyRow);
-                    delete shallow.RawJson; delete shallow['Duplicate Matches'];
+                    delete shallow.RawJson;
                     mutPre.textContent = JSON.stringify(shallow, null, 2);
                     mutPre.setAttribute('data-loaded','true');
                   }
@@ -2364,7 +2323,6 @@ document.addEventListener('DOMContentLoaded', function(){
           }, 0);
         }
       }
-      var cell = e.target.closest('td,th');
       // JSON toggle buttons
       var jsonBtn = e.target.closest('button.json-btn');
       if(jsonBtn){
@@ -2404,71 +2362,54 @@ document.addEventListener('DOMContentLoaded', function(){
       if(tr && tr.parentElement.tagName !== 'THEAD'){
         tr.classList.toggle('selected');
       }
-      if(!cell) return;
-      var raw = (cell.textContent||'').trim();
-      // If empty cell: clear highlights and reset
-      if(raw.length===0){ clearValueMatches(); activeMatchValue=null; return; }
-      // If clicking same value again -> toggle off
-      if(activeMatchValue !== null && raw === activeMatchValue){ clearValueMatches(); activeMatchValue=null; return; }
-      // Apply new highlight set
-      clearValueMatches();
-      activeMatchValue = raw;
-      var cells = table.querySelectorAll('td,th');
-      for(var i=0;i<cells.length;i++){
-        var txt = (cells[i].textContent||'').trim();
-        if(txt === raw && raw.length>0){ cells[i].classList.add('value-match'); }
-      }
     });
-    var headers = table.querySelectorAll('thead th');
-    for(var h=0; h<headers.length; h++){
-      (function(th, idx){
-        th.addEventListener('click', function(){
-          var active = !th.classList.contains('colselected');
-            // Clear existing
-          for(var k=0;k<headers.length;k++){ headers[k].classList.remove('colselected'); }
-          var rows = table.querySelectorAll('tr');
-          for(var r=0;r<rows.length;r++){
-            var cells = rows[r].children;
-            for(var c=0;c<cells.length;c++){
-              cells[c].classList.remove('colselected');
-            }
-          }
-          if(active){
-            th.classList.add('colselected');
-            for(var r2=0;r2<rows.length;r2++){
-              var c2 = rows[r2].children[idx];
-              if(c2){ c2.classList.add('colselected'); }
-            }
-          }
-        });
-      })(headers[h], h);
+
+  }
+
+  // Status filter functionality
+  var statusFilter = document.getElementById('status-filter');
+  if(statusFilter && table){
+    function applyStatusFilter(){
+      var filterValue = statusFilter.value;
+      var rows = table.querySelectorAll('tbody tr');
+      var visibleCount = 0;
+      rows.forEach(function(row){
+        var nameCell = row.querySelector('td.name-col');
+        if(!nameCell){ return; }
+        var statusLabel = nameCell.querySelector('.status-label');
+        if(!statusLabel){
+          row.style.display = '';
+          visibleCount++;
+          return;
+        }
+        var shouldShow = false;
+        if(filterValue === 'all'){
+          shouldShow = true;
+        } else if(filterValue === 'enabled' && statusLabel.classList.contains('status-enabled')){
+          shouldShow = true;
+        } else if(filterValue === 'report' && statusLabel.classList.contains('status-report')){
+          shouldShow = true;
+        } else if(filterValue === 'disabled' && statusLabel.classList.contains('status-disabled')){
+          shouldShow = true;
+        }
+        row.style.display = shouldShow ? '' : 'none';
+        if(shouldShow){ visibleCount++; }
+      });
+      var liveRegion = document.getElementById('live-region');
+      if(liveRegion){
+        var filterText = filterValue === 'all' ? 'all policies' : filterValue + ' policies';
+        liveRegion.textContent = 'Showing ' + visibleCount + ' ' + filterText;
+      }
     }
-  }
-  // Raw ID column names
-  var rawIdCols = ['UsersIncludeIds','UsersExcludeIds','RolesIncludeIds','RolesExcludeIds','ApplicationsIncludedIds','ApplicationsExcludedIds','LocationsIncludedIds','LocationsExcludedIds','TermsOfUseIds'];
-  function setIdColumns(show){
-    if(!table) return;
-    var headers = table.querySelectorAll('thead th');
-    headers.forEach(function(th, idx){
-      var label = th.textContent.trim();
-      if(rawIdCols.indexOf(label) > -1){
-        var rows = table.querySelectorAll('tbody tr');
-        if(show){ th.classList.remove('id-col-hidden'); } else { th.classList.add('id-col-hidden'); }
-        rows.forEach(function(r){ var c=r.children[idx]; if(c){ if(show){ c.classList.remove('id-col-hidden'); } else { c.classList.add('id-col-hidden'); } } });
-      }
-    });
-  }
-  // Restore ID column visibility
-  var showIdsPref = false; try { showIdsPref = localStorage.getItem('caexport.showIds')==='true'; } catch(e){}
-  setIdColumns(showIdsPref);
-  if(showIdsPref && idToggle){ idToggle.classList.add('active'); idToggle.textContent='Hide ID Columns'; idToggle.setAttribute('aria-pressed','true'); }
-  if(idToggle){
-    idToggle.addEventListener('click', function(){
-      var active = idToggle.classList.toggle('active');
-      idToggle.textContent = active ? 'Hide ID Columns' : 'Show ID Columns';
-      idToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
-      setIdColumns(active);
-      try { localStorage.setItem('caexport.showIds', active?'true':'false'); } catch(e){}
+    statusFilter.addEventListener('change', applyStatusFilter);
+    // Restore filter state
+    try {
+      var storedFilter = localStorage.getItem('caexport.statusFilter');
+      if(storedFilter){ statusFilter.value = storedFilter; applyStatusFilter(); }
+    } catch(e){}
+    // Save filter state on change
+    statusFilter.addEventListener('change', function(){
+      try { localStorage.setItem('caexport.statusFilter', statusFilter.value); } catch(e){}
     });
   }
 
@@ -2553,35 +2494,6 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   }
 
-  // Layout mode toggle (dynamic vs fixed widths) with persistence
-  if(layoutModeToggle && policies){
-    var storedLayout = null; try { storedLayout = localStorage.getItem('caexport.layoutMode'); } catch(e){}
-    function applyLayout(mode){
-      // mode: 'dynamic' or 'fixed'
-      if(mode==='fixed'){
-        policies.classList.add('fixed-layout');
-        layoutModeToggle.textContent='Layout: Fixed';
-        layoutModeToggle.classList.add('active');
-        layoutModeToggle.setAttribute('data-mode','fixed');
-        layoutModeToggle.setAttribute('aria-pressed','true');
-      } else {
-        policies.classList.remove('fixed-layout');
-        layoutModeToggle.textContent='Layout: Dynamic';
-        layoutModeToggle.classList.remove('active');
-        layoutModeToggle.setAttribute('data-mode','dynamic');
-        layoutModeToggle.setAttribute('aria-pressed','false');
-      }
-    }
-    applyLayout(storedLayout && ['dynamic','fixed'].indexOf(storedLayout)>-1 ? storedLayout : 'dynamic');
-    layoutModeToggle.addEventListener('click', function(){
-      var current = layoutModeToggle.getAttribute('data-mode');
-      var next = current==='dynamic' ? 'fixed' : 'dynamic';
-      applyLayout(next);
-      try { localStorage.setItem('caexport.layoutMode', next); } catch(e){}
-      var lr=document.getElementById('live-region'); if(lr){ lr.textContent='Layout set to '+ (next==='fixed'?'fixed widths':'dynamic widths'); }
-    });
-  }
-
   // Description expand/collapse (aria-expanded + aria-controls for accessibility)
   if(table){
     table.addEventListener('click', function(e){
@@ -2592,6 +2504,19 @@ document.addEventListener('DOMContentLoaded', function(){
       btn.textContent = expanded ? 'Less' : 'More';
   btn.setAttribute('aria-label', expanded ? 'Collapse description' : 'Expand description');
   btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    });
+  }
+
+  // Assignment cell expand/collapse
+  if(table){
+    table.addEventListener('click', function(e){
+      var btn = e.target.closest('.assignment-expand');
+      if(!btn) return;
+      var cell = btn.closest('.assignment-cell');
+      var expanded = cell.classList.toggle('expanded');
+      btn.textContent = expanded ? 'Less' : 'More';
+      btn.setAttribute('aria-label', expanded ? 'Collapse' : 'Expand');
+      btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
     });
   }
 
@@ -2607,7 +2532,6 @@ document.addEventListener('DOMContentLoaded', function(){
     for(var i=0;i<rows.length;i++){
       var row = rows[i];
       var show = true;
-      if(overlapFilterActive && !row.classList.contains('row-overlap')) { show=false; }
       if(show && q.length>0){
         var cells = row.children;
         var match = false;
@@ -2640,21 +2564,6 @@ document.addEventListener('DOMContentLoaded', function(){
 
   // Ensure search state matches initial view (handled in activate but safeguard)
   if(searchInput && searchInput.disabled && window.location.hash.toLowerCase().indexOf('policies')>-1){ searchInput.disabled=false; }
-  // Overlap filter chip
-  var overlapBtn = document.getElementById('filter-overlap');
-  var overlapFilterActive = false;
-  if(overlapBtn && table){
-    overlapBtn.addEventListener('click', function(){
-      overlapFilterActive = !overlapFilterActive;
-      overlapBtn.classList.toggle('active', overlapFilterActive);
-      overlapBtn.setAttribute('aria-pressed', overlapFilterActive ? 'true':'false');
-      filterPolicies();
-      try { localStorage.setItem('caexport.overlapFilter', overlapFilterActive ? '1':'0'); } catch(e){}
-      var lr=document.getElementById('live-region'); if(lr){ lr.textContent = overlapFilterActive ? 'Overlap filter on' : 'Overlap filter off'; }
-    });
-    var storedOverlap = null; try { storedOverlap = localStorage.getItem('caexport.overlapFilter'); } catch(e){}
-    if(storedOverlap==='1'){ overlapBtn.click(); }
-  }
 });
 </script>
 "@
@@ -2663,11 +2572,14 @@ document.addEventListener('DOMContentLoaded', function(){
   if (-not $NoBrowser) {
     if ($IsWindows -or $PSVersionTable.PSVersion.Major -le 5) {
       Start-Process $Launch
-    } elseif ($IsMacOS) {
+    }
+    elseif ($IsMacOS) {
       & open $Launch
-    } elseif ($IsLinux) {
+    }
+    elseif ($IsLinux) {
       & xdg-open $Launch
-    } else {
+    }
+    else {
       Write-Info "HTML report saved to: $Launch (auto-open not supported on this platform)"
     }
   }
@@ -2678,14 +2590,16 @@ if ($JsonExport) {
   try {
     $CAExport | ConvertTo-Json -Depth 12 | Out-File $LaunchJson
     Write-Info "JSON (enriched) saved: $LaunchJson"
-  } catch {
+  }
+  catch {
     Write-Warn "Failed to save enriched JSON: $_" 
   }
   if ($RawPolicyObjects) {
     $rawFile = Join-Path -Path $ExportLocation -ChildPath "${baseName}_raw.json"
     try {
       $RawPolicyObjects | ConvertTo-Json -Depth 12 | Out-File $rawFile; Write-Info "Raw JSON saved: $rawFile" 
-    } catch {
+    }
+    catch {
       Write-Warn "Failed to save raw JSON: $_" 
     }
   }
@@ -2694,30 +2608,30 @@ if ($CsvExport) {
   Write-Info 'Saving to File: CSV (one row per policy)'
   $LaunchCsv = Join-Path -Path $ExportLocation -ChildPath $CsvFileName
   $defaultColumns = @(
-    'Name', 'PolicyId', 'Recommended Name', 'Status', 'Modified', 'Created', 'Description',
-    'Included Users', 'Excluded Users', 'UsersIncludeIds', 'UsersExcludeIds', 'RolesIncludeIds', 'RolesExcludeIds',
-    'Included Applications', 'Excluded Applications', 'ApplicationsIncludedIds', 'ApplicationsExcludedIds',
-    'User Actions', 'Auth Context', 'User Risk', 'SignIn Risk', 'Platforms Include', 'Platforms Exclude',
-    'Locations Included', 'Locations Excluded', 'LocationsIncludedIds', 'LocationsExcludedIds', 'Client Apps',
-    'Devices Included', 'Devices Excluded', 'Device Filters', 'Authentication Flows', 'Block', 'Require MFA', 'Authentication Strength MFA',
-    'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Terms Of Use', 'TermsOfUseIds', 'Custom Controls', 'Grant Operator',
-    'Application Enforced Restrictions', 'Cloud App Security', 'Sign In Frequency', 'Persistent Browser', 'Continuous Access Evaluation', 'Resilient Defaults', 'Secure Sign In Session', 'Duplicate Matches'
+    'Name', 'PolicyId', 'Status', 'Modified', 'Created',
+    'Included Users', 'Excluded Users',
+    'Included Applications', 'Excluded Applications',
+    'User Actions', 'Auth Context', 'Included Locations', 'Excluded Locations', 'User Risk', 'SignIn Risk', 'Platforms Included', 'Platforms Excluded', 'Included Devices', 'Excluded Devices', 'Client Apps', 'Device Filters', 'Authentication Flows', 'Block', 'Grant Operator', 'Require MFA', 'Authentication Strength MFA',
+    'Compliant Device', 'Domain Joined Device', 'Compliant Application', 'Approved Application', 'Password Change', 'Terms Of Use', 'Custom Controls', 'Application Enforced Restrictions', 'Cloud App Security', 'Sign In Frequency', 'Persistent Browser', 'Continuous Access Evaluation', 'Resilient Defaults', 'Secure Sign In Session'
   )
   $chosenColumns = if ($CsvColumns) {
     $CsvColumns 
-  } else {
+  }
+  else {
     $defaultColumns 
   }
   $available = if ($CAExport.Count -gt 0) {
     $CAExport[0].PSObject.Properties.Name 
-  } else {
+  }
+  else {
     @() 
   }
   $missingCols = @(); $finalCols = @()
   foreach ($c in $chosenColumns) {
     if ($available -contains $c) {
       $finalCols += $c 
-    } else {
+    }
+    else {
       $missingCols += $c 
     } 
   }
@@ -2726,12 +2640,14 @@ if ($CsvExport) {
   }
   $exportSet = if ($finalCols) {
     $CAExport | Select-Object -Property $finalCols 
-  } else {
+  }
+  else {
     $null 
   }
   if (-not $exportSet) {
     Write-Warn 'No CAExport data found; exporting raw policies.'; $CAPolicy | Select-Object * | Export-Csv -NoTypeInformation -Path $LaunchCsv 
-  } else {
+  }
+  else {
     $exportSet | Export-Csv -NoTypeInformation -Path $LaunchCsv 
   }
   Write-Info "CSV saved: $LaunchCsv"
@@ -2742,11 +2658,13 @@ if ($CsvPivotExport) {
   $pivotToExport = $pivot
   if (-not $pivotToExport -or $pivotToExport.Count -eq 0) {
     Write-Warn 'Pivot empty; skipping pivot CSV.' 
-  } else {
+  }
+  else {
     try {
       $pivotToExport | Export-Csv -NoTypeInformation -Path $LaunchCsvPivot
       Write-Info "Pivot CSV saved: $LaunchCsvPivot"
-    } catch {
+    }
+    catch {
       Write-Warn "Failed to write pivot CSV: $($_.Exception.Message)"
     }
   }
